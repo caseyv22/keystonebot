@@ -1,5 +1,11 @@
 /**
- * KeystoneBot Worker — Phase 4C (CORS + tightened prompt + Haiku model)
+ * KeystoneBot Worker — Phase 4C (CORS + Haiku + Bug 2 fix)
+ *
+ * Bug 2 fix: conflict detection now compares forum chunk's `contradicts`
+ * (a doc path like "docs/authoritative/pto-policy.md") against the
+ * authoritative chunks' `doc_path`. Previously compared `contradicts`
+ * against `topic`, which never matched since authoritative docs have no
+ * topic frontmatter.
  *
  * Endpoints:
  *   - GET  /                        → deploy check
@@ -335,7 +341,7 @@ interface SourceCard {
 interface ConflictFlag {
   forum_doc: string;
   forum_platform: string;
-  contradicts_topic: string;
+  contradicts_doc_path: string;
   authoritative_doc: string;
 }
 
@@ -397,26 +403,36 @@ async function runChat(request: Request, env: Env): Promise<Response> {
     ...forumMatches.map((m) => matchToSourceCard(m)),
   ];
 
+  // Explicit conflict detection — Bug 2 fix.
+  // Forum `contradicts` is a doc_path; we look for an authoritative chunk with a
+  // matching doc_path. Dedupe by doc_path so multiple chunks from the same
+  // authoritative doc only count once per forum source.
   const conflicts: ConflictFlag[] = [];
-  const authoritativeTopics = new Set(
-    authoritativeMatches.map((m) => m.metadata?.topic).filter(Boolean)
-  );
-  const authoritativeByTopic = new Map<string, string>();
+  const authoritativeByDocPath = new Map<string, string>();
   for (const m of authoritativeMatches) {
-    const t = m.metadata?.topic;
-    if (t) authoritativeByTopic.set(t, m.metadata?.doc_name ?? '');
+    const p = m.metadata?.doc_path as string | undefined;
+    if (p && !authoritativeByDocPath.has(p)) {
+      authoritativeByDocPath.set(p, (m.metadata?.doc_name as string) ?? '');
+    }
   }
 
+  const seenConflictKeys = new Set<string>();
   for (const forumMatch of forumMatches) {
     const contradicts = forumMatch.metadata?.contradicts as string | undefined;
-    if (contradicts && authoritativeTopics.has(contradicts)) {
-      conflicts.push({
-        forum_doc: forumMatch.metadata?.doc_name ?? '',
-        forum_platform: forumMatch.metadata?.platform ?? 'unknown',
-        contradicts_topic: contradicts,
-        authoritative_doc: authoritativeByTopic.get(contradicts) ?? '',
-      });
-    }
+    if (!contradicts) continue;
+    if (!authoritativeByDocPath.has(contradicts)) continue;
+
+    const forumDocPath = forumMatch.metadata?.doc_path as string | undefined;
+    const key = `${forumDocPath ?? ''}::${contradicts}`;
+    if (seenConflictKeys.has(key)) continue;
+    seenConflictKeys.add(key);
+
+    conflicts.push({
+      forum_doc: (forumMatch.metadata?.doc_name as string) ?? '',
+      forum_platform: (forumMatch.metadata?.platform as string) ?? 'unknown',
+      contradicts_doc_path: contradicts,
+      authoritative_doc: authoritativeByDocPath.get(contradicts) ?? '',
+    });
   }
 
   const contextBlock = buildContextBlock(
@@ -467,7 +483,7 @@ function buildContextBlock(
     parts.push('=== CONFLICT WARNINGS ===');
     for (const c of conflicts) {
       parts.push(
-        `A forum post on ${c.forum_platform} ("${c.forum_doc}") claims to contradict the authoritative source "${c.authoritative_doc}" on the topic of "${c.contradicts_topic}". When answering, surface the authoritative position AND flag the forum discrepancy with a "heads up" naming the platform.`
+        `A forum post on ${c.forum_platform} ("${c.forum_doc}") contradicts the authoritative source "${c.authoritative_doc}". When answering, surface the authoritative position AND flag the forum discrepancy with a "heads up" naming the platform.`
       );
     }
     parts.push('');
