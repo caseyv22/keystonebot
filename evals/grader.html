@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>KeystoneBot — Eval Grader</title>
+  <title>KeystoneBot — Eval Grader (run 2)</title>
   <style>
     :root {
       --brand-blue: #113CCF;
@@ -21,6 +21,8 @@
       --na-bg: #F3F4F6;
       --pending: #92400E;
       --pending-bg: #FEF3C7;
+      --retry: #1E40AF;
+      --retry-bg: #DBEAFE;
     }
     * { box-sizing: border-box; }
     body {
@@ -47,10 +49,7 @@
       color: var(--brand-blue);
       letter-spacing: -0.01em;
     }
-    .subtitle {
-      color: var(--text-muted);
-      font-size: 13px;
-    }
+    .subtitle { color: var(--text-muted); font-size: 13px; }
     .controls {
       display: flex;
       gap: 12px;
@@ -155,6 +154,16 @@
     .verdict-fail { background: var(--fail-bg); color: var(--fail); }
     .verdict-na { background: var(--na-bg); color: var(--na); }
     .verdict-pending { background: var(--pending-bg); color: var(--pending); }
+    .retry-badge {
+      display: inline-block;
+      padding: 1px 6px;
+      margin-left: 6px;
+      border-radius: 4px;
+      background: var(--retry-bg);
+      color: var(--retry);
+      font-size: 10px;
+      font-weight: 700;
+    }
     .answer-cell { max-width: 360px; }
     .answer-preview {
       font-size: 12px;
@@ -199,19 +208,19 @@
   <div class="container">
     <header>
       <div>
-        <h1>KeystoneBot Eval Grader</h1>
-        <div class="subtitle">20 questions · Bot: claude-haiku-4-5 · Judge: claude-sonnet-4-5</div>
+        <h1>KeystoneBot Eval Grader (run 2)</h1>
+        <div class="subtitle">20 questions · Bot: claude-haiku-4-5 · Judge: claude-sonnet-4-5 · 1.5s pacing · Retries: up to 3 with backoff</div>
       </div>
       <div class="subtitle" id="runMeta"></div>
     </header>
 
     <div class="controls">
       <button id="runBtn">Run all evals</button>
-      <button id="downloadBtn" class="secondary" disabled>Download scorecard.md</button>
+      <button id="downloadBtn" class="secondary" disabled>Download scorecard-run-2.md</button>
       <span class="subtitle" id="progress"></span>
     </div>
 
-    <div class="status" id="status">Ready. Click "Run all evals" to start. Estimated time: ~3-5 minutes (20 questions × ~10s each).</div>
+    <div class="status" id="status">Ready. Click "Run all evals" to start. Estimated time: ~5-7 minutes (pacing + potential retries).</div>
 
     <div class="summary" id="summary"></div>
 
@@ -236,7 +245,12 @@
   <script>
     const WORKER_URL = 'https://keystonebot-worker.caseyvillanueva.workers.dev';
 
-    // Embedded question set — mirrors evals/questions.md
+    // Pacing + retry config
+    const INTER_QUESTION_DELAY_MS = 1500;   // gap between question (i+1) and (i)
+    const MAX_ATTEMPTS = 3;                 // up to 3 attempts per call
+    const BACKOFF_BASE_MS = 1000;           // 1s, 2s, 4s
+
+    // Embedded question set
     const QUESTIONS = [
       // Category 1: Clean retrieval
       { id: 'Q1',  category: 'Clean retrieval', question: "How much PTO do I get per year?",
@@ -358,6 +372,46 @@
       return `<span class="verdict verdict-pending">pending</span>`;
     }
 
+    function sleep(ms) {
+      return new Promise((res) => setTimeout(res, ms));
+    }
+
+    /**
+     * Fetch with retry + exponential backoff.
+     * Retries on network errors and 5xx + 429 responses.
+     */
+    async function fetchWithRetry(url, options, label) {
+      let lastErr = null;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        try {
+          const resp = await fetch(url, options);
+          if (resp.ok) {
+            return { resp, attempts: attempt };
+          }
+          // Retryable HTTP errors: 5xx and 429
+          if (resp.status >= 500 || resp.status === 429) {
+            lastErr = new Error(`${label} returned ${resp.status}`);
+            if (attempt < MAX_ATTEMPTS) {
+              const backoff = BACKOFF_BASE_MS * Math.pow(2, attempt - 1);
+              await sleep(backoff);
+              continue;
+            }
+            return { resp, attempts: attempt }; // surface non-retryable final response
+          }
+          // Non-retryable HTTP error (4xx except 429) — return immediately
+          return { resp, attempts: attempt };
+        } catch (err) {
+          lastErr = err;
+          if (attempt < MAX_ATTEMPTS) {
+            const backoff = BACKOFF_BASE_MS * Math.pow(2, attempt - 1);
+            await sleep(backoff);
+            continue;
+          }
+        }
+      }
+      throw lastErr ?? new Error(`${label} failed after ${MAX_ATTEMPTS} attempts`);
+    }
+
     async function runAll() {
       runBtn.disabled = true;
       downloadBtn.disabled = true;
@@ -382,6 +436,8 @@
           const errorResult = {
             question: q,
             chatError: String(err),
+            chatAttempts: 0,
+            gradeAttempts: 0,
             actualAnswer: '',
             sources: [],
             conflicts: [],
@@ -392,10 +448,15 @@
           results.push(errorResult);
           renderRow(q, errorResult);
         }
+
+        // Pacing between questions (not after the last one)
+        if (i < QUESTIONS.length - 1) {
+          await sleep(INTER_QUESTION_DELAY_MS);
+        }
       }
 
       progressEl.textContent = `Done. ${QUESTIONS.length} of ${QUESTIONS.length} graded.`;
-      statusEl.textContent = 'Eval run complete. Review the table above, then click "Download scorecard.md".';
+      statusEl.textContent = 'Eval run complete. Review the table above, then click "Download scorecard-run-2.md".';
       renderSummary();
       summaryEl.classList.add('show');
       downloadBtn.disabled = false;
@@ -404,13 +465,20 @@
 
     async function runOne(q) {
       const chatStart = Date.now();
-      const chatResp = await fetch(`${WORKER_URL}/chat`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ message: q.question }),
-      });
-      if (!chatResp.ok) throw new Error(`/chat returned ${chatResp.status}`);
-      const chatData = await chatResp.json();
+      const chatResult = await fetchWithRetry(
+        `${WORKER_URL}/chat`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ message: q.question }),
+        },
+        '/chat'
+      );
+      if (!chatResult.resp.ok) {
+        const errBody = await chatResult.resp.text().catch(() => '');
+        throw new Error(`/chat ${chatResult.resp.status} after ${chatResult.attempts} attempts: ${errBody.slice(0, 200)}`);
+      }
+      const chatData = await chatResult.resp.json();
       const durationMs = Date.now() - chatStart;
 
       const gradeBody = {
@@ -425,13 +493,31 @@
         gradeBody.expected_conflict_platform = q.expected_conflict_platform;
       }
 
-      const gradeResp = await fetch(`${WORKER_URL}/grade`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(gradeBody),
-      });
-      if (!gradeResp.ok) throw new Error(`/grade returned ${gradeResp.status}`);
-      const gradeData = await gradeResp.json();
+      const gradeResult = await fetchWithRetry(
+        `${WORKER_URL}/grade`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(gradeBody),
+        },
+        '/grade'
+      );
+      if (!gradeResult.resp.ok) {
+        const errBody = await gradeResult.resp.text().catch(() => '');
+        return {
+          question: q,
+          actualAnswer: chatData.answer,
+          sources: chatData.sources || [],
+          conflicts: chatData.conflicts || [],
+          durationMs,
+          grades: null,
+          chatError: null,
+          chatAttempts: chatResult.attempts,
+          gradeAttempts: gradeResult.attempts,
+          gradeError: `/grade ${gradeResult.resp.status} after ${gradeResult.attempts} attempts: ${errBody.slice(0, 200)}`,
+        };
+      }
+      const gradeData = await gradeResult.resp.json();
 
       return {
         question: q,
@@ -441,6 +527,8 @@
         durationMs,
         grades: gradeData.grades,
         chatError: null,
+        chatAttempts: chatResult.attempts,
+        gradeAttempts: gradeResult.attempts,
         gradeError: gradeData.status === 'error' ? gradeData.message : null,
       };
     }
@@ -487,18 +575,24 @@
         `;
       });
 
-      // Duration
-      cells[8].textContent = `${(result.durationMs / 1000).toFixed(1)}s`;
+      // Duration with retry badge
+      let timeText = `${(result.durationMs / 1000).toFixed(1)}s`;
+      const retries = Math.max(0, (result.chatAttempts || 1) - 1) + Math.max(0, (result.gradeAttempts || 1) - 1);
+      if (retries > 0) {
+        timeText += `<span class="retry-badge">retried ${retries}x</span>`;
+      }
+      cells[8].innerHTML = timeText;
     }
 
     function renderSummary() {
       const byCategory = {};
-      let totalScored = 0, totalPass = 0;
+      let totalScored = 0, totalPass = 0, totalRetries = 0;
       const dimTotals = { accuracy: { p: 0, t: 0 }, citation: { p: 0, t: 0 }, refusal: { p: 0, t: 0 }, conflict: { p: 0, t: 0 }, formatting: { p: 0, t: 0 } };
 
       for (const r of results) {
         const cat = r.question.category;
         if (!byCategory[cat]) byCategory[cat] = { pass: 0, total: 0 };
+        totalRetries += Math.max(0, (r.chatAttempts || 1) - 1) + Math.max(0, (r.gradeAttempts || 1) - 1);
         if (!r.grades) continue;
         for (const dim of r.question.dimensions) {
           const g = r.grades[dim];
@@ -520,6 +614,9 @@
       summaryEl.innerHTML = `
         <div style="font-size: 16px; font-weight: 700;">
           Overall pass rate: ${pct(totalPass, totalScored)} (${totalPass} / ${totalScored} scored dimensions)
+        </div>
+        <div class="subtitle" style="margin-top: 4px;">
+          Total retries during run: ${totalRetries}
         </div>
         <div class="summary-grid">
           ${Object.entries(byCategory).map(([cat, s]) => `
@@ -544,21 +641,26 @@
 
     function buildScorecardMd() {
       const lines = [];
-      lines.push('# KeystoneBot Eval Scorecard');
+      lines.push('# KeystoneBot Eval Scorecard (Run 2)');
       lines.push('');
       lines.push(`**Run**: ${runStartTime.toLocaleString()}`);
       lines.push(`**Bot model**: claude-haiku-4-5`);
       lines.push(`**Judge model**: claude-sonnet-4-5`);
       lines.push(`**Total questions**: ${QUESTIONS.length}`);
+      lines.push(`**Pacing**: ${INTER_QUESTION_DELAY_MS}ms between questions`);
+      lines.push(`**Retries**: up to ${MAX_ATTEMPTS} attempts per call with exponential backoff (${BACKOFF_BASE_MS}ms base)`);
+      lines.push('');
+      lines.push('> **Run 1 context**: an earlier run (`scorecard-run-1.md`) hit intermittent 500 errors on 7 of 20 questions due to API rate limiting during burst execution. The pattern was diagnosed from the failure clustering, and the harness was hardened with pacing + retry/backoff before this run.');
       lines.push('');
 
       // Overall + dim summary
       const byCategory = {};
-      let totalScored = 0, totalPass = 0;
+      let totalScored = 0, totalPass = 0, totalRetries = 0;
       const dimTotals = { accuracy: { p: 0, t: 0 }, citation: { p: 0, t: 0 }, refusal: { p: 0, t: 0 }, conflict: { p: 0, t: 0 }, formatting: { p: 0, t: 0 } };
       for (const r of results) {
         const cat = r.question.category;
         if (!byCategory[cat]) byCategory[cat] = { pass: 0, total: 0 };
+        totalRetries += Math.max(0, (r.chatAttempts || 1) - 1) + Math.max(0, (r.gradeAttempts || 1) - 1);
         if (!r.grades) continue;
         for (const dim of r.question.dimensions) {
           const g = r.grades[dim];
@@ -578,6 +680,7 @@
       lines.push('## Overall');
       lines.push('');
       lines.push(`**Pass rate**: ${pct(totalPass, totalScored)} (${totalPass} / ${totalScored} scored dimensions)`);
+      lines.push(`**Total retries during run**: ${totalRetries}`);
       lines.push('');
 
       lines.push('## By category');
@@ -606,6 +709,11 @@
         lines.push('');
         lines.push(`**Category**: ${q.category}`);
         lines.push(`**Duration**: ${(r.durationMs / 1000).toFixed(1)}s`);
+        const chatRetries = Math.max(0, (r.chatAttempts || 1) - 1);
+        const gradeRetries = Math.max(0, (r.gradeAttempts || 1) - 1);
+        if (chatRetries + gradeRetries > 0) {
+          lines.push(`**Retries**: /chat × ${chatRetries}, /grade × ${gradeRetries}`);
+        }
         lines.push('');
         if (r.chatError) {
           lines.push(`**Error**: ${r.chatError}`);
@@ -653,7 +761,7 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'scorecard.md';
+      a.download = 'scorecard-run-2.md';
       a.click();
       URL.revokeObjectURL(url);
     });
