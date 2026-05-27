@@ -10,6 +10,10 @@ const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
 const conflictToggle = document.getElementById('conflictToggle');
 
+// Cache the full /chat response on each bot message so we can re-render
+// when the toggle flips, without re-querying the backend.
+const messageData = new WeakMap();
+
 // Empty-state suggestion clicks
 document.querySelectorAll('.suggestion').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -57,6 +61,18 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
+// Re-render all existing bot messages when the conflict toggle flips.
+// This is what makes the toggle feel "live" — flip it and past messages
+// instantly update to show or hide forum sources and conflict banners.
+conflictToggle.addEventListener('change', () => {
+  const botMessages = thread.querySelectorAll('.message.bot');
+  botMessages.forEach((el) => {
+    const data = messageData.get(el);
+    if (!data) return;
+    renderBotMessageBody(el, data);
+  });
+});
+
 function removeEmptyState() {
   if (emptyEl && emptyEl.parentNode) emptyEl.parentNode.removeChild(emptyEl);
 }
@@ -92,17 +108,27 @@ function addTypingIndicator() {
   return el;
 }
 
-function addBotMessage({ answer, sources = [], conflicts = [] }) {
-  const showConflicts = conflictToggle.checked;
-
+function addBotMessage(data) {
   const el = createBotMessageShell();
+  messageData.set(el, data);
+  renderBotMessageBody(el, data);
+  thread.appendChild(el);
+  scrollToBottom();
+}
+
+// Render (or re-render) everything inside the .bubble-wrap based on the
+// current toggle state. Called both at first paint and on toggle change.
+function renderBotMessageBody(el, { answer, sources = [], conflicts = [] }) {
+  const showConflicts = conflictToggle.checked;
   const wrap = el.querySelector('.bubble-wrap');
+  wrap.innerHTML = '';
 
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
   bubble.innerHTML = renderMarkdown(answer);
   wrap.appendChild(bubble);
 
+  // Conflict banner — only in Path B AND when conflicts were detected
   if (showConflicts && conflicts.length > 0) {
     const banner = document.createElement('div');
     banner.className = 'conflict-banner';
@@ -115,6 +141,7 @@ function addBotMessage({ answer, sources = [], conflicts = [] }) {
     wrap.appendChild(banner);
   }
 
+  // Sources — Path A filters to authoritative only; Path B shows all
   const filteredSources = showConflicts
     ? sources
     : sources.filter((s) => s.authority === 'high');
@@ -122,9 +149,6 @@ function addBotMessage({ answer, sources = [], conflicts = [] }) {
   if (filteredSources.length > 0) {
     wrap.appendChild(renderSources(filteredSources));
   }
-
-  thread.appendChild(el);
-  scrollToBottom();
 }
 
 function createBotMessageShell() {
@@ -194,9 +218,6 @@ function scrollToBottom() {
  *   - - bullet     → <ul><li>
  *   - **bold**     → <strong>
  *   - blank line   → paragraph break
- *
- * The escape-first approach is intentional — we escape HTML, then apply
- * markdown-to-HTML transforms to the safe text. No raw user/model HTML.
  */
 function renderMarkdown(text) {
   if (!text) return '';
@@ -208,14 +229,12 @@ function renderMarkdown(text) {
       const trimmed = block.trim();
       if (!trimmed) return '';
 
-      // Headers — check h3 (###) before h2 (##) since ### contains ##
       const h3 = trimmed.match(/^###\s+(.+)$/);
       if (h3) return `<h4>${applyInline(h3[1])}</h4>`;
 
       const h2 = trimmed.match(/^##\s+(.+)$/);
       if (h2) return `<h3>${applyInline(h2[1])}</h3>`;
 
-      // Bullet list — every line must start with - or *
       const lines = trimmed.split('\n');
       if (lines.length > 0 && lines.every((l) => /^\s*[-*]\s+/.test(l))) {
         const items = lines
@@ -225,7 +244,6 @@ function renderMarkdown(text) {
         return `<ul>${items}</ul>`;
       }
 
-      // Default — paragraph (preserve single newlines as <br>)
       return `<p>${applyInline(trimmed.replace(/\n/g, '<br>'))}</p>`;
     })
     .filter(Boolean)
