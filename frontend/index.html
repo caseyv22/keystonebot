@@ -10,7 +10,7 @@
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎬%3C/text%3E%3C/svg%3E"
     />
   </head>
-  <body>
+  <body data-state="empty">
     <header class="topbar">
       <div class="brand">
         <span class="brand-mark">◆</span>
@@ -26,8 +26,9 @@
       </label>
     </header>
 
-    <main id="thread" class="thread">
-      <div id="empty" class="empty-state">
+    <!-- Empty state: centered composer with greeting above and chips below -->
+    <section id="emptyShell" class="empty-shell">
+      <div class="empty-inner">
         <div class="empty-greeting">
           <h1>Hi, I'm KeystoneBot.</h1>
           <p>
@@ -35,14 +36,18 @@
             benefits, parental leave, expenses, and more. I'll always cite the
             policy I'm drawing from.
           </p>
-          <p class="empty-disclaimer">
-            Keystone Studios is a fictional company. All policies, documents,
-            and forum posts referenced here are synthetic — built to demonstrate
-            how an enterprise AI chatbot should handle source authority,
-            citation, and conflicting information. No real company information
-            is used.
-          </p>
         </div>
+
+        <!-- Composer slot for the centered empty state. JS moves the real form here on load
+             and back to the bottom slot after the first message. -->
+        <div id="composerSlotCenter" class="composer-slot composer-slot-center"></div>
+
+        <p class="empty-disclaimer">
+          Keystone Studios is a fictional company. All policies, documents, and
+          forum posts referenced here are not real. No real company information
+          is used.
+        </p>
+
         <div class="suggestions">
           <button class="suggestion" data-q="How much PTO do I get per year?">
             How much PTO do I get per year?
@@ -55,8 +60,15 @@
           </button>
         </div>
       </div>
-    </main>
+    </section>
 
+    <!-- Chat thread (visible after first message) -->
+    <main id="thread" class="thread"></main>
+
+    <!-- Composer slot for the bottom-pinned position. JS moves the form here after first message. -->
+    <div id="composerSlotBottom" class="composer-slot composer-slot-bottom"></div>
+
+    <!-- The composer itself. JS moves this element between slots. -->
     <form id="composer" class="composer" autocomplete="off">
       <input
         id="input"
