@@ -103,7 +103,6 @@ function addBotMessage({ answer, sources = [], conflicts = [] }) {
   bubble.innerHTML = renderMarkdown(answer);
   wrap.appendChild(bubble);
 
-  // Conflict banner — only in Path B
   if (showConflicts && conflicts.length > 0) {
     const banner = document.createElement('div');
     banner.className = 'conflict-banner';
@@ -116,7 +115,6 @@ function addBotMessage({ answer, sources = [], conflicts = [] }) {
     wrap.appendChild(banner);
   }
 
-  // Sources — Path A filters to authoritative only; Path B shows all
   const filteredSources = showConflicts
     ? sources
     : sources.filter((s) => s.authority === 'high');
@@ -129,7 +127,6 @@ function addBotMessage({ answer, sources = [], conflicts = [] }) {
   scrollToBottom();
 }
 
-// Bot message shell: avatar + bubble-wrap container
 function createBotMessageShell() {
   const el = document.createElement('div');
   el.className = 'message bot';
@@ -189,7 +186,18 @@ function scrollToBottom() {
   thread.scrollTop = thread.scrollHeight;
 }
 
-// Minimal markdown: paragraphs, **bold**, bullet lists
+/**
+ * Minimal markdown renderer.
+ * Supports:
+ *   - ### Heading  → <h4>
+ *   - ## Heading   → <h3>
+ *   - - bullet     → <ul><li>
+ *   - **bold**     → <strong>
+ *   - blank line   → paragraph break
+ *
+ * The escape-first approach is intentional — we escape HTML, then apply
+ * markdown-to-HTML transforms to the safe text. No raw user/model HTML.
+ */
 function renderMarkdown(text) {
   if (!text) return '';
   const safe = escapeHtml(text);
@@ -197,13 +205,30 @@ function renderMarkdown(text) {
   const blocks = safe.split(/\n{2,}/);
   return blocks
     .map((block) => {
-      const lines = block.split('\n');
-      if (lines.every((l) => /^\s*[-*]\s+/.test(l))) {
-        const items = lines.map((l) => l.replace(/^\s*[-*]\s+/, '')).map((l) => `<li>${applyInline(l)}</li>`).join('');
+      const trimmed = block.trim();
+      if (!trimmed) return '';
+
+      // Headers — check h3 (###) before h2 (##) since ### contains ##
+      const h3 = trimmed.match(/^###\s+(.+)$/);
+      if (h3) return `<h4>${applyInline(h3[1])}</h4>`;
+
+      const h2 = trimmed.match(/^##\s+(.+)$/);
+      if (h2) return `<h3>${applyInline(h2[1])}</h3>`;
+
+      // Bullet list — every line must start with - or *
+      const lines = trimmed.split('\n');
+      if (lines.length > 0 && lines.every((l) => /^\s*[-*]\s+/.test(l))) {
+        const items = lines
+          .map((l) => l.replace(/^\s*[-*]\s+/, ''))
+          .map((l) => `<li>${applyInline(l)}</li>`)
+          .join('');
         return `<ul>${items}</ul>`;
       }
-      return `<p>${applyInline(block.replace(/\n/g, '<br>'))}</p>`;
+
+      // Default — paragraph (preserve single newlines as <br>)
+      return `<p>${applyInline(trimmed.replace(/\n/g, '<br>'))}</p>`;
     })
+    .filter(Boolean)
     .join('');
 }
 
