@@ -1,18 +1,21 @@
-// KeystoneBot frontend — Path C (production-realistic by default,
-// flip toggle to surface forum conflicts)
+// KeystoneBot frontend — centered empty state → bottom-pinned chat layout
 
 const WORKER_URL = 'https://keystonebot-worker.caseyvillanueva.workers.dev';
 
+const body = document.body;
 const thread = document.getElementById('thread');
-const emptyEl = document.getElementById('empty');
 const form = document.getElementById('composer');
 const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
 const conflictToggle = document.getElementById('conflictToggle');
+const composerSlotCenter = document.getElementById('composerSlotCenter');
+const composerSlotBottom = document.getElementById('composerSlotBottom');
 
-// Cache the full /chat response on each bot message so we can re-render
-// when the toggle flips, without re-querying the backend.
+// Cache full /chat response per bot message so we can re-render on toggle change
 const messageData = new WeakMap();
+
+// On load: park the composer in the centered slot
+composerSlotCenter.appendChild(form);
 
 // Empty-state suggestion clicks
 document.querySelectorAll('.suggestion').forEach((btn) => {
@@ -29,7 +32,11 @@ form.addEventListener('submit', async (e) => {
   if (!message) return;
   if (sendBtn.disabled) return;
 
-  removeEmptyState();
+  // First-send: move composer to bottom and swap layout state
+  if (body.dataset.state === 'empty') {
+    transitionToChat();
+  }
+
   addUserMessage(message);
   input.value = '';
   sendBtn.disabled = true;
@@ -61,9 +68,7 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
-// Re-render all existing bot messages when the conflict toggle flips.
-// This is what makes the toggle feel "live" — flip it and past messages
-// instantly update to show or hide forum sources and conflict banners.
+// Re-render existing bot messages when conflict toggle flips
 conflictToggle.addEventListener('change', () => {
   const botMessages = thread.querySelectorAll('.message.bot');
   botMessages.forEach((el) => {
@@ -73,8 +78,11 @@ conflictToggle.addEventListener('change', () => {
   });
 });
 
-function removeEmptyState() {
-  if (emptyEl && emptyEl.parentNode) emptyEl.parentNode.removeChild(emptyEl);
+function transitionToChat() {
+  body.dataset.state = 'chat';
+  composerSlotBottom.appendChild(form);
+  // Refocus after the DOM move so the cursor stays in the input
+  requestAnimationFrame(() => input.focus());
 }
 
 function addUserMessage(text) {
@@ -116,8 +124,6 @@ function addBotMessage(data) {
   scrollToBottom();
 }
 
-// Render (or re-render) everything inside the .bubble-wrap based on the
-// current toggle state. Called both at first paint and on toggle change.
 function renderBotMessageBody(el, { answer, sources = [], conflicts = [] }) {
   const showConflicts = conflictToggle.checked;
   const wrap = el.querySelector('.bubble-wrap');
@@ -128,7 +134,6 @@ function renderBotMessageBody(el, { answer, sources = [], conflicts = [] }) {
   bubble.innerHTML = renderMarkdown(answer);
   wrap.appendChild(bubble);
 
-  // Conflict banner — only in Path B AND when conflicts were detected
   if (showConflicts && conflicts.length > 0) {
     const banner = document.createElement('div');
     banner.className = 'conflict-banner';
@@ -141,7 +146,6 @@ function renderBotMessageBody(el, { answer, sources = [], conflicts = [] }) {
     wrap.appendChild(banner);
   }
 
-  // Sources — Path A filters to authoritative only; Path B shows all
   const filteredSources = showConflicts
     ? sources
     : sources.filter((s) => s.authority === 'high');
@@ -211,13 +215,7 @@ function scrollToBottom() {
 }
 
 /**
- * Minimal markdown renderer.
- * Supports:
- *   - ### Heading  → <h4>
- *   - ## Heading   → <h3>
- *   - - bullet     → <ul><li>
- *   - **bold**     → <strong>
- *   - blank line   → paragraph break
+ * Minimal markdown: ### → h4, ## → h3, - bullets, **bold**, blank-line paragraphs.
  */
 function renderMarkdown(text) {
   if (!text) return '';
