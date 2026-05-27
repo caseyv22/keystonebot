@@ -235,6 +235,24 @@ body {
 .bubble ul, .bubble ol { margin: 8px 0; padding-left: 22px; }
 .bubble li { margin-bottom: 4px; }
 
+/* Markdown headers rendered inside bot bubbles (safety net — prompt discourages them) */
+.bubble h3 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 14px 0 6px;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.bubble h3:first-child { margin-top: 0; }
+
+.bubble h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 12px 0 4px;
+  color: var(--text);
+}
+.bubble h4:first-child { margin-top: 0; }
+
 /* Conflict banner */
 .conflict-banner {
   margin-top: 10px;
