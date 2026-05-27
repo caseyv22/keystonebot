@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KeystoneBot — HR Assistant</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎬%3C/text%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">◆</span>
+        <span class="brand-name">KEYSTONE</span>
+        <span class="brand-divider">·</span>
+        <span class="brand-product">HR Assistant</span>
+      </div>
+      <label class="toggle" title="Surface forum misinformation conflicts in responses">
+        <input type="checkbox" id="conflictToggle" />
+        <span class="toggle-slider"></span>
+        <span class="toggle-label">Show forum conflicts</span>
+      </label>
+    </header>
+
+    <main id="thread" class="thread">
+      <div id="empty" class="empty-state">
+        <div class="empty-greeting">
+          <h1>Hi, I'm KeystoneBot.</h1>
+          <p>
+            I can answer questions about Keystone Studios HR policies — PTO,
+            benefits, parental leave, expenses, and more. I'll always cite the
+            policy I'm drawing from.
+          </p>
+        </div>
+        <div class="suggestions">
+          <button class="suggestion" data-q="How much PTO do I get per year?">
+            How much PTO do I get per year?
+          </button>
+          <button class="suggestion" data-q="Can I roll over my unused PTO to next year?">
+            Can I roll over my unused PTO to next year?
+          </button>
+          <button class="suggestion" data-q="What's the parental leave policy?">
+            What's the parental leave policy?
+          </button>
+        </div>
+      </div>
+    </main>
+
+    <form id="composer" class="composer" autocomplete="off">
+      <input
+        id="input"
+        type="text"
+        placeholder="Ask about PTO, benefits, expenses, parental leave…"
+        maxlength="1000"
+        aria-label="Your question"
+      />
+      <button type="submit" id="send" aria-label="Send">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+      </button>
+    </form>
+
+    <script src="app.js"></script>
+  </body>
+</html>
