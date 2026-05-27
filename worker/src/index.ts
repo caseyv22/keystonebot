@@ -1,5 +1,5 @@
 /**
- * KeystoneBot Worker — Phase 4D (grade endpoint + better error surfacing)
+ * KeystoneBot Worker — Phase 5 (UI banner is sole conflict surface)
  *
  * Endpoints:
  *   - GET  /                        → deploy check
@@ -57,9 +57,9 @@ const CORS_HEADERS = {
 const SYSTEM_PROMPT = `You are KeystoneBot, the HR assistant for Keystone Studios. Answer employee questions using ONLY the provided context.
 
 CONTENT RULES:
-1. Prefer chunks tagged [AUTHORITATIVE] (official HR docs) over chunks tagged [FORUM POST] (employee discussions).
+1. Prefer chunks tagged [AUTHORITATIVE] (official HR docs) over chunks tagged [FORUM POST] (employee discussions). The authoritative source is the source of truth.
 2. Cite the source document inline (e.g., "per the PTO Policy") but DO NOT include URLs, footnote markers like [1], or chunk IDs — source cards are rendered separately by the UI.
-3. If a CONFLICT WARNING is included in the context, surface the authoritative answer AND explicitly flag the forum discrepancy with a "heads up" — name the forum platform where the misinformation appeared.
+3. CONFLICT WARNINGS in the context are metadata for the UI, not content for your answer. If a CONFLICT WARNING block appears in the context, IGNORE it — do not mention it, do not write "heads up", do not name the forum platform, do not allude to misinformation. The UI surfaces conflicts to the user separately via a banner. Your job is to write the clean authoritative answer as if no forum noise existed.
 4. If the answer is not in the provided context, say so plainly and direct the user to hr@keystone.studio. Do NOT guess, extrapolate, or fill in details from general knowledge — only state what the context actually says.
 5. Match Keystone's voice: active voice, second person, specific numbers from the context.
 
@@ -103,14 +103,15 @@ REFUSAL — For out-of-scope questions, does the bot decline gracefully without 
 - Fail: Bot invents an answer, OR refuses without a redirect, OR partially answers with fabricated content.
 - n/a: This is not a refusal question.
 
-CONFLICT — For questions with forum noise, does the bot surface the conflict AND name the specific platform?
-- Pass: Bot explicitly flags the misinformation AND names the platform (Viva Engage, Confluence, SharePoint, Slack, Glint).
-- Fail: Bot answers correctly but doesn't flag the conflict, OR flags vaguely without naming the platform.
+CONFLICT — For questions where forum misinformation is present in the corpus, did the BACKEND programmatically detect the conflict (visible in the "CONFLICTS THE BACKEND DETECTED" field of this input)? In this system, conflicts are surfaced via the UI's conflict banner, NOT in the answer body. The bot is instructed to NOT mention the conflict in its prose.
+- Pass: The backend detected at least one conflict AND it matches the expected platform.
+- Fail: The backend returned no conflicts when one was expected, OR the detected platform doesn't match the expected platform.
+- Important: Do NOT penalize the bot for omitting the conflict from its answer body — that is the correct behavior. The conflict belongs in the UI banner, not the prose.
 - n/a: This is not a conflict-detection question.
 
 FORMATTING — Is the response well-formatted?
-- Pass: Under ~250 words, no literal "##" markdown headers visible as text, no decorative emoji in the body, scannable structure.
-- Fail: Over 250 words for a non-detailed question, broken markdown like literal "##", or excessive emoji decoration.
+- Pass: Under ~250 words, no literal "##" markdown headers visible as text, no decorative emoji in the body, scannable structure, AND no inline "heads up" or conflict callout about forum misinformation (those belong in the UI banner, not the answer prose).
+- Fail: Over 250 words for a non-detailed question, broken markdown like literal "##", excessive emoji decoration, OR includes inline conflict callouts the bot was instructed to omit.
 - n/a: Never use n/a for this dimension — every answer can be evaluated for formatting.
 
 If a dimension is not listed in the "dimensions_to_score" field of the input, mark it "n/a" with rationale "Not scored for this question type."`;
@@ -198,7 +199,6 @@ export default {
       })();
       return withCors(response);
     } catch (err: any) {
-      // Surface Anthropic API errors clearly so we can diagnose rate limits etc.
       const msg = err?.message ?? String(err);
       const isAnthropic = /Anthropic API error/.test(msg);
       const status = /\b429\b/.test(msg) ? 429 : 500;
@@ -533,10 +533,10 @@ function buildContextBlock(
   const parts: string[] = [];
 
   if (conflicts.length > 0) {
-    parts.push('=== CONFLICT WARNINGS ===');
+    parts.push('=== CONFLICT WARNINGS (UI METADATA — DO NOT MENTION IN ANSWER) ===');
     for (const c of conflicts) {
       parts.push(
-        `A forum post on ${c.forum_platform} ("${c.forum_doc}") contradicts the authoritative source "${c.authoritative_doc}". When answering, surface the authoritative position AND flag the forum discrepancy with a "heads up" naming the platform.`
+        `Conflict detected: forum post on ${c.forum_platform} ("${c.forum_doc}") contradicts authoritative source "${c.authoritative_doc}". This information is for the UI's conflict banner — do NOT reference it in your answer.`
       );
     }
     parts.push('');
@@ -560,7 +560,7 @@ function buildContextBlock(
     }
   }
 
-  parts.push('=== FORUM POSTS (low authority — employee discussions, may contain errors) ===');
+  parts.push('=== FORUM POSTS (low authority — included for retrieval context only, do NOT cite or reference) ===');
   if (forumMatches.length === 0) {
     parts.push('(none retrieved)');
   } else {
@@ -664,7 +664,7 @@ function buildJudgeUserMessage(req: GradeRequest): string {
       : '(none returned)';
 
   const expectedConflictText = req.expected_conflict_platform
-    ? `EXPECTED CONFLICT PLATFORM (must be named in answer for conflict pass): ${req.expected_conflict_platform}`
+    ? `EXPECTED CONFLICT PLATFORM (the backend should have detected this platform): ${req.expected_conflict_platform}`
     : 'EXPECTED CONFLICT PLATFORM: (none expected)';
 
   return `QUESTION ASKED:
@@ -679,7 +679,7 @@ ${req.actual_answer}
 SOURCES THE BOT WAS GIVEN:
 ${sourcesText}
 
-CONFLICTS THE BACKEND DETECTED:
+CONFLICTS THE BACKEND DETECTED (this is what's shown in the UI banner):
 ${conflictsText}
 
 ${expectedConflictText}
@@ -691,7 +691,7 @@ Return your JSON verdict now.`;
 }
 
 // ============================================================================
-// Shared LLM call — surfaces Anthropic API errors verbatim for diagnosis
+// Shared LLM call
 // ============================================================================
 
 async function callClaude(
@@ -717,7 +717,6 @@ async function callClaude(
 
   if (!resp.ok) {
     const errText = await resp.text();
-    // Include status, model, and body so we can tell rate limit vs auth vs other
     throw new Error(`Anthropic API error ${resp.status} (model=${model}): ${errText}`);
   }
 
