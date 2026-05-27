@@ -64,17 +64,19 @@ function removeEmptyState() {
 function addUserMessage(text) {
   const el = document.createElement('div');
   el.className = 'message user';
+  const wrap = document.createElement('div');
+  wrap.className = 'bubble-wrap';
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
   bubble.textContent = text;
-  el.appendChild(bubble);
+  wrap.appendChild(bubble);
+  el.appendChild(wrap);
   thread.appendChild(el);
   scrollToBottom();
 }
 
 function addTypingIndicator() {
-  const el = document.createElement('div');
-  el.className = 'message bot';
+  const el = createBotMessageShell();
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
   bubble.innerHTML = `
@@ -84,7 +86,7 @@ function addTypingIndicator() {
       <span class="typing-dot"></span>
     </div>
   `;
-  el.appendChild(bubble);
+  el.querySelector('.bubble-wrap').appendChild(bubble);
   thread.appendChild(el);
   scrollToBottom();
   return el;
@@ -93,13 +95,13 @@ function addTypingIndicator() {
 function addBotMessage({ answer, sources = [], conflicts = [] }) {
   const showConflicts = conflictToggle.checked;
 
-  const el = document.createElement('div');
-  el.className = 'message bot';
+  const el = createBotMessageShell();
+  const wrap = el.querySelector('.bubble-wrap');
 
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
   bubble.innerHTML = renderMarkdown(answer);
-  el.appendChild(bubble);
+  wrap.appendChild(bubble);
 
   // Conflict banner — only in Path B
   if (showConflicts && conflicts.length > 0) {
@@ -111,7 +113,7 @@ function addBotMessage({ answer, sources = [], conflicts = [] }) {
       ${conflicts.map((c) => `<strong>${escapeHtml(c.forum_platform)}</strong>`).join(', ')}.
       The answer above is from official policy.</span>
     `;
-    el.appendChild(banner);
+    wrap.appendChild(banner);
   }
 
   // Sources — Path A filters to authoritative only; Path B shows all
@@ -120,11 +122,29 @@ function addBotMessage({ answer, sources = [], conflicts = [] }) {
     : sources.filter((s) => s.authority === 'high');
 
   if (filteredSources.length > 0) {
-    el.appendChild(renderSources(filteredSources));
+    wrap.appendChild(renderSources(filteredSources));
   }
 
   thread.appendChild(el);
   scrollToBottom();
+}
+
+// Bot message shell: avatar + bubble-wrap container
+function createBotMessageShell() {
+  const el = document.createElement('div');
+  el.className = 'message bot';
+
+  const avatar = document.createElement('div');
+  avatar.className = 'bot-avatar';
+  avatar.setAttribute('aria-hidden', 'true');
+  avatar.textContent = 'K';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'bubble-wrap';
+
+  el.appendChild(avatar);
+  el.appendChild(wrap);
+  return el;
 }
 
 function renderSources(sources) {
