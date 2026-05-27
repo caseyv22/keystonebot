@@ -1,8 +1,5 @@
 /**
- * KeystoneBot Worker — Phase 4D adds /grade endpoint (Sonnet-as-judge)
- *
- * The grader uses claude-sonnet-4-5 to score bot answers against the rubric.
- * Sonnet judges Haiku (the bot model) to avoid self-judgment bias.
+ * KeystoneBot Worker — Phase 4D (grade endpoint + better error surfacing)
  *
  * Endpoints:
  *   - GET  /                        → deploy check
@@ -12,7 +9,7 @@
  *   - POST /ingest                  → ingest docs
  *   - GET  /ingest/status           → vector count
  *   - POST /chat                    → RAG chat endpoint (Haiku)
- *   - POST /grade                   → eval grading endpoint (Sonnet)
+ *   - POST /grade                   → eval grading endpoint (Sonnet judge)
  */
 
 export interface Env {
@@ -201,14 +198,20 @@ export default {
       })();
       return withCors(response);
     } catch (err: any) {
+      // Surface Anthropic API errors clearly so we can diagnose rate limits etc.
+      const msg = err?.message ?? String(err);
+      const isAnthropic = /Anthropic API error/.test(msg);
+      const status = /\b429\b/.test(msg) ? 429 : 500;
+
       return withCors(
         Response.json(
           {
             status: 'error',
-            message: err?.message ?? String(err),
+            error_class: isAnthropic ? 'anthropic_api' : 'worker_internal',
+            message: msg,
             stack: err?.stack,
           },
-          { status: 500 }
+          { status }
         )
       );
     }
@@ -579,7 +582,7 @@ function buildContextBlock(
 }
 
 // ============================================================================
-// /grade — LLM-as-judge eval scoring
+// /grade
 // ============================================================================
 
 interface GradeRequest {
@@ -588,8 +591,8 @@ interface GradeRequest {
   actual_answer: string;
   sources?: SourceCard[];
   conflicts?: ConflictFlag[];
-  dimensions_to_score: string[]; // subset of ['accuracy','citation','refusal','conflict','formatting']
-  expected_conflict_platform?: string; // e.g. "Viva Engage" — for conflict questions
+  dimensions_to_score: string[];
+  expected_conflict_platform?: string;
 }
 
 async function runGrade(request: Request, env: Env): Promise<Response> {
@@ -613,7 +616,6 @@ async function runGrade(request: Request, env: Env): Promise<Response> {
     { role: 'user', content: judgeUserMessage },
   ]);
 
-  // Sonnet should return raw JSON, but in case it wraps in fences we strip them.
   const cleaned = responseText
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/, '')
@@ -689,7 +691,7 @@ Return your JSON verdict now.`;
 }
 
 // ============================================================================
-// Shared LLM call
+// Shared LLM call — surfaces Anthropic API errors verbatim for diagnosis
 // ============================================================================
 
 async function callClaude(
@@ -715,7 +717,8 @@ async function callClaude(
 
   if (!resp.ok) {
     const errText = await resp.text();
-    throw new Error(`Anthropic API error ${resp.status}: ${errText}`);
+    // Include status, model, and body so we can tell rate limit vs auth vs other
+    throw new Error(`Anthropic API error ${resp.status} (model=${model}): ${errText}`);
   }
 
   const data = (await resp.json()) as any;
