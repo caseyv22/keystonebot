@@ -31,6 +31,7 @@
   --warning-text: #78350F;
 
   --max-w: 760px;
+  --max-w-composer: 720px;
   --radius: 14px;
   --radius-sm: 8px;
   --shadow-sm: 0 1px 2px rgba(17, 60, 207, 0.04);
@@ -66,7 +67,6 @@ body {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
-
 .brand {
   display: flex;
   align-items: center;
@@ -79,7 +79,7 @@ body {
 .brand-divider { color: var(--text-subtle); }
 .brand-product { color: var(--text-muted); }
 
-/* Demo pill — small persistent reminder that this is a demo */
+/* Demo pill */
 .demo-pill {
   display: inline-block;
   padding: 2px 8px;
@@ -128,62 +128,89 @@ body {
 .toggle input:checked + .toggle-slider { background: var(--brand-blue); }
 .toggle input:checked + .toggle-slider::after { transform: translateX(14px); }
 
-/* Thread */
-.thread {
+/* ============================================================
+   STATE-DRIVEN LAYOUT
+   body[data-state="empty"]  → centered composer, no thread, no bottom bar
+   body[data-state="chat"]   → bottom-pinned composer + scrolling thread
+   ============================================================ */
+
+/* Empty shell — visible when data-state="empty" */
+.empty-shell {
   flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
   overflow-y: auto;
-  padding: 24px 16px 16px;
+}
+body[data-state="chat"] .empty-shell { display: none; }
+
+.empty-inner {
+  width: 100%;
+  max-width: var(--max-w-composer);
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  width: 100%;
-  max-width: var(--max-w);
-  margin: 0 auto;
+  align-items: stretch;
+  gap: 24px;
 }
 
-/* Empty state */
-.empty-state {
-  margin-top: 10vh;
+.empty-greeting {
   text-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 28px;
-}
-.empty-greeting {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 .empty-greeting h1 {
-  font-size: 24px;
+  font-size: 28px;
   margin: 0;
   font-weight: 600;
   color: var(--text);
+  letter-spacing: -0.01em;
 }
 .empty-greeting p {
   margin: 0;
   color: var(--text-muted);
-  max-width: 520px;
+  max-width: 560px;
+  font-size: 15px;
 }
 
-/* Demo disclaimer — subtle italic text below greeting */
+/* Composer slot containers */
+.composer-slot { display: contents; }
+
+.composer-slot-center { /* receives the composer in empty state — nothing to style directly */ }
+
+.composer-slot-bottom {
+  display: none;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 16px;
+}
+body[data-state="chat"] .composer-slot-bottom { display: flex; justify-content: center; }
+
+/* Disclaimer — between composer and chips in empty state */
 .empty-disclaimer {
+  margin: 0;
   font-size: 12.5px;
   font-style: italic;
-  color: var(--text-subtle) !important;
-  max-width: 480px !important;
+  color: var(--text-subtle);
+  text-align: center;
+  max-width: 560px;
+  margin-left: auto;
+  margin-right: auto;
   line-height: 1.5;
-  margin-top: 4px !important;
 }
+body[data-state="chat"] .empty-disclaimer { display: none; }
 
+/* Suggestions — chips below disclaimer */
 .suggestions {
   display: flex;
   flex-direction: column;
   gap: 8px;
   width: 100%;
-  max-width: 480px;
+  max-width: 560px;
+  margin: 0 auto;
 }
 .suggestion {
   background: var(--surface);
@@ -203,7 +230,24 @@ body {
   color: var(--brand-blue);
 }
 
-/* Messages */
+/* Chat thread — hidden in empty state, visible in chat state */
+.thread {
+  display: none;
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 16px 16px;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+  max-width: var(--max-w);
+  margin: 0 auto;
+}
+body[data-state="chat"] .thread { display: flex; }
+
+/* ============================================================
+   MESSAGES (chat state only — display unchanged from prior version)
+   ============================================================ */
+
 .message {
   display: flex;
   align-items: flex-start;
@@ -215,7 +259,6 @@ body {
 .message.user .bubble-wrap { max-width: 80%; }
 .message.bot .bubble-wrap { flex: 1; min-width: 0; }
 
-/* Bot avatar */
 .bot-avatar {
   width: 32px;
   height: 32px;
@@ -257,7 +300,6 @@ body {
 .bubble ul, .bubble ol { margin: 8px 0; padding-left: 22px; }
 .bubble li { margin-bottom: 4px; }
 
-/* Markdown headers in bot bubbles */
 .bubble h3 {
   font-size: 15px;
   font-weight: 700;
@@ -274,7 +316,6 @@ body {
 }
 .bubble h4:first-child { margin-top: 0; }
 
-/* Conflict banner */
 .conflict-banner {
   margin-top: 10px;
   padding: 10px 14px;
@@ -289,7 +330,6 @@ body {
 }
 .conflict-banner .icon { flex-shrink: 0; font-size: 14px; }
 
-/* Sources */
 .sources {
   margin-top: 10px;
   display: flex;
@@ -339,7 +379,6 @@ body {
 .source-name { font-weight: 600; }
 .source-detail { font-size: 11px; opacity: 0.75; }
 
-/* Typing indicator */
 .typing {
   display: flex;
   gap: 4px;
@@ -360,38 +399,36 @@ body {
   40% { transform: scale(1); opacity: 1; }
 }
 
-/* Composer */
+/* ============================================================
+   COMPOSER — same visual styling in both states, container differs
+   ============================================================ */
 .composer {
   display: flex;
   gap: 8px;
-  padding: 16px;
-  background: var(--surface);
-  border-top: 1px solid var(--border);
   width: 100%;
-  max-width: var(--max-w);
+  max-width: var(--max-w-composer);
   margin: 0 auto;
   flex-shrink: 0;
 }
 #input {
   flex: 1;
-  padding: 12px 18px;
+  padding: 14px 20px;
   border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 15px;
   font-family: inherit;
   outline: none;
-  background: var(--surface-alt);
-  transition: border 0.15s, background 0.15s, box-shadow 0.15s;
+  background: var(--surface);
+  transition: border 0.15s, box-shadow 0.15s;
   color: var(--text);
 }
 #input:focus {
   border-color: var(--brand-blue);
-  background: var(--surface);
   box-shadow: 0 0 0 3px var(--brand-blue-soft);
 }
 #send {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   border: none;
   background: var(--brand-blue);
@@ -407,12 +444,25 @@ body {
 #send:hover:not(:disabled) { background: var(--brand-blue-hover); }
 #send:active:not(:disabled) { transform: scale(0.96); }
 
+/* Empty-state composer gets a subtle elevation to feel like the focal point */
+body[data-state="empty"] .composer #input {
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+body[data-state="empty"] .composer #input:focus {
+  box-shadow: var(--shadow-md), 0 0 0 3px var(--brand-blue-soft);
+}
+
 /* Mobile */
 @media (max-width: 600px) {
   .topbar { padding: 12px 16px; }
   .toggle-label { display: none; }
-  .empty-state { margin-top: 6vh; }
-  .composer { padding: 12px; }
+  .empty-greeting h1 { font-size: 22px; }
+  .empty-shell { padding: 16px; }
+  .empty-inner { gap: 18px; }
+  .composer-slot-bottom { padding: 12px; }
   .bot-avatar { width: 28px; height: 28px; font-size: 12px; }
   .demo-pill { font-size: 9px; padding: 1px 6px; }
+  #input { padding: 12px 18px; }
+  #send { width: 44px; height: 44px; }
 }
