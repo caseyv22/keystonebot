@@ -26,27 +26,17 @@
       </label>
     </header>
 
-    <!-- Empty state: centered composer with greeting above and chips below -->
+    <!-- Empty state: greeting → chips → composer → disclaimer -->
     <section id="emptyShell" class="empty-shell">
       <div class="empty-inner">
         <div class="empty-greeting">
           <h1>Hi, I'm KeystoneBot.</h1>
           <p>
             I can answer questions about Keystone Studios HR policies — PTO,
-            benefits, parental leave, expenses, and more. I'll always cite the
-            policy I'm drawing from.
+            benefits, parental leave, expenses, and more. I'll always cite
+            the policy I'm drawing from.
           </p>
         </div>
-
-        <!-- Composer slot for the centered empty state. JS moves the real form here on load
-             and back to the bottom slot after the first message. -->
-        <div id="composerSlotCenter" class="composer-slot composer-slot-center"></div>
-
-        <p class="empty-disclaimer">
-          Keystone Studios is a fictional company. All policies, documents, and
-          forum posts referenced here are not real. No real company information
-          is used.
-        </p>
 
         <div class="suggestions">
           <button class="suggestion" data-q="How much PTO do I get per year?">
@@ -59,6 +49,16 @@
             What's the parental leave policy?
           </button>
         </div>
+
+        <!-- Composer slot for the centered empty state. JS moves the real form here on load
+             and back to the bottom slot after the first message. -->
+        <div id="composerSlotCenter" class="composer-slot composer-slot-center"></div>
+
+        <p class="empty-disclaimer">
+          Keystone Studios is a fictional company. All policies, documents, and
+          forum posts referenced here are not real. No real company information
+          is used.
+        </p>
       </div>
     </section>
 
