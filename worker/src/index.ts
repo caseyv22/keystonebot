@@ -1,5 +1,5 @@
 /**
- * KeystoneBot Worker — Phase 4B (Bug 1 fix: include chunk_text in context)
+ * KeystoneBot Worker — Phase 4C (CORS added for Pages frontend)
  *
  * Endpoints:
  *   - GET  /                        → deploy check
@@ -46,6 +46,12 @@ const MAX_CHUNK_CHARS = 1800;
 const TOP_K_AUTHORITATIVE = 3;
 const TOP_K_FORUM = 2;
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
 const SYSTEM_PROMPT = `You are KeystoneBot, the HR assistant for Keystone Studios. Answer employee questions using ONLY the provided context. Follow these rules:
 
 1. Prefer chunks tagged [AUTHORITATIVE] (official HR docs) over chunks tagged [FORUM POST] (employee discussions).
@@ -59,64 +65,86 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    try {
-      switch (url.pathname) {
-        case '/':
-          return new Response('Hello from KeystoneBot 👋', {
-            headers: { 'content-type': 'text/plain' },
-          });
+    // CORS preflight
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: CORS_HEADERS });
+    }
 
-        case '/health':
-          return Response.json({
-            status: 'ok',
-            bindings: {
-              ai: !!env.AI,
-              vectorize: !!env.VECTORIZE,
-              anthropic_key: !!env.ANTHROPIC_API_KEY,
-              cloudflare_account_id: !!env.CLOUDFLARE_ACCOUNT_ID,
-              cloudflare_api_token: !!env.CLOUDFLARE_API_TOKEN,
-            },
-            timestamp: new Date().toISOString(),
-          });
-
-        case '/setup':
-          return await createVectorizeIndex(env);
-
-        case '/setup-metadata-indexes':
-          return await createMetadataIndexes(env);
-
-        case '/ingest':
-          if (request.method !== 'POST') {
-            return Response.json(
-              { error: 'POST required for /ingest' },
-              { status: 405 }
-            );
-          }
-          return await runIngestion(env);
-
-        case '/ingest/status':
-          return await ingestionStatus(env);
-
-        case '/chat':
-          if (request.method !== 'POST') {
-            return Response.json(
-              { error: 'POST required for /chat' },
-              { status: 405 }
-            );
-          }
-          return await runChat(request, env);
-
-        default:
-          return new Response('Not found', { status: 404 });
+    const withCors = (resp: Response): Response => {
+      const newHeaders = new Headers(resp.headers);
+      for (const [k, v] of Object.entries(CORS_HEADERS)) {
+        newHeaders.set(k, v);
       }
+      return new Response(resp.body, {
+        status: resp.status,
+        statusText: resp.statusText,
+        headers: newHeaders,
+      });
+    };
+
+    try {
+      const response = await (async () => {
+        switch (url.pathname) {
+          case '/':
+            return new Response('Hello from KeystoneBot 👋', {
+              headers: { 'content-type': 'text/plain' },
+            });
+
+          case '/health':
+            return Response.json({
+              status: 'ok',
+              bindings: {
+                ai: !!env.AI,
+                vectorize: !!env.VECTORIZE,
+                anthropic_key: !!env.ANTHROPIC_API_KEY,
+                cloudflare_account_id: !!env.CLOUDFLARE_ACCOUNT_ID,
+                cloudflare_api_token: !!env.CLOUDFLARE_API_TOKEN,
+              },
+              timestamp: new Date().toISOString(),
+            });
+
+          case '/setup':
+            return await createVectorizeIndex(env);
+
+          case '/setup-metadata-indexes':
+            return await createMetadataIndexes(env);
+
+          case '/ingest':
+            if (request.method !== 'POST') {
+              return Response.json(
+                { error: 'POST required for /ingest' },
+                { status: 405 }
+              );
+            }
+            return await runIngestion(env);
+
+          case '/ingest/status':
+            return await ingestionStatus(env);
+
+          case '/chat':
+            if (request.method !== 'POST') {
+              return Response.json(
+                { error: 'POST required for /chat' },
+                { status: 405 }
+              );
+            }
+            return await runChat(request, env);
+
+          default:
+            return new Response('Not found', { status: 404 });
+        }
+      })();
+      return withCors(response);
     } catch (err: any) {
-      return Response.json(
-        {
-          status: 'error',
-          message: err?.message ?? String(err),
-          stack: err?.stack,
-        },
-        { status: 500 }
+      return withCors(
+        Response.json(
+          {
+            status: 'error',
+            message: err?.message ?? String(err),
+            stack: err?.stack,
+          },
+          { status: 500 }
+        )
       );
     }
   },
@@ -421,13 +449,6 @@ function matchToSourceCard(m: any): SourceCard {
   };
 }
 
-/**
- * Build the context block sent to Claude.
- *
- * BUG 1 FIX: Now includes m.metadata.chunk_text (the full passage) rather than
- * just doc_name/section/topic. Without this, Claude had no grounding and was
- * filling in plausible-sounding HR policy from training data — i.e. hallucinating.
- */
 function buildContextBlock(
   authMatches: any[],
   forumMatches: any[],
@@ -520,7 +541,7 @@ async function callClaude(
 }
 
 // ============================================================================
-// Shared helpers — unchanged
+// Shared helpers
 // ============================================================================
 
 async function fetchDoc(path: string): Promise<string> {
