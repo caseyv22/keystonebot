@@ -1,0 +1,10 @@
+{
+  "name": "keystonebot-worker",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250508.0",
+    "typescript": "^5.5.0"
+  }
+}

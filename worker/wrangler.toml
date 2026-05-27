@@ -1,0 +1,21 @@
+name = "keystonebot-worker"
+main = "src/index.ts"
+compatibility_date = "2026-05-23"
+
+# Workers AI binding (for embeddings in Phase 4)
+[ai]
+binding = "AI"
+
+# Vectorize binding will be added AFTER the index is created via /setup.
+# Uncomment and redeploy once the index exists:
+#
+# [[vectorize]]
+# binding = "VECTORIZE"
+# index_name = "keystonebot"
+
+# Plain vars (non-secret) — bound through dashboard, not hardcoded here
+# CLOUDFLARE_ACCOUNT_ID
+
+# Secrets (set via dashboard, never in this file)
+# ANTHROPIC_API_KEY
+# CLOUDFLARE_API_TOKEN
