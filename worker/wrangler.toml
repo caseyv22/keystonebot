@@ -6,12 +6,10 @@ compatibility_date = "2026-05-23"
 [ai]
 binding = "AI"
 
-# Vectorize binding will be added AFTER the index is created via /setup.
-# Uncomment and redeploy once the index exists:
-#
-# [[vectorize]]
-# binding = "VECTORIZE"
-# index_name = "keystonebot"
+# Vectorize binding — index was created via /setup endpoint
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "keystonebot"
 
 # Plain vars (non-secret) — bound through dashboard, not hardcoded here
 # CLOUDFLARE_ACCOUNT_ID
