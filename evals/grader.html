@@ -1,0 +1,675 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KeystoneBot — Eval Grader</title>
+  <style>
+    :root {
+      --brand-blue: #113CCF;
+      --brand-blue-soft: #E6EBFB;
+      --bg: #FAFAFA;
+      --surface: #FFFFFF;
+      --border: #E5E7EB;
+      --text: #0B1130;
+      --text-muted: #4A5274;
+      --pass: #166534;
+      --pass-bg: #DCFCE7;
+      --fail: #991B1B;
+      --fail-bg: #FEE2E2;
+      --na: #6B7280;
+      --na-bg: #F3F4F6;
+      --pending: #92400E;
+      --pending-bg: #FEF3C7;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      color: var(--brand-blue);
+      letter-spacing: -0.01em;
+    }
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    .controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    button {
+      background: var(--brand-blue);
+      color: white;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button:hover:not(:disabled) { opacity: 0.85; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.secondary {
+      background: white;
+      color: var(--brand-blue);
+      border: 1px solid var(--brand-blue);
+    }
+    .status {
+      padding: 12px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 13px;
+    }
+    .summary {
+      display: none;
+      padding: 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 24px;
+    }
+    .summary.show { display: block; }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .summary-cell {
+      padding: 10px;
+      background: var(--bg);
+      border-radius: 6px;
+    }
+    .summary-cell-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+    .summary-cell-value {
+      font-size: 20px;
+      font-weight: 700;
+      margin-top: 2px;
+    }
+    table {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      border-collapse: separate;
+      border-spacing: 0;
+      overflow: hidden;
+    }
+    th, td {
+      padding: 10px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+    th {
+      background: var(--bg);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .q-id { font-weight: 700; color: var(--brand-blue); white-space: nowrap; }
+    .q-text { font-size: 12px; color: var(--text-muted); max-width: 280px; }
+    .verdict {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .verdict-pass { background: var(--pass-bg); color: var(--pass); }
+    .verdict-fail { background: var(--fail-bg); color: var(--fail); }
+    .verdict-na { background: var(--na-bg); color: var(--na); }
+    .verdict-pending { background: var(--pending-bg); color: var(--pending); }
+    .answer-cell { max-width: 360px; }
+    .answer-preview {
+      font-size: 12px;
+      color: var(--text-muted);
+      max-height: 60px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+    }
+    details summary {
+      cursor: pointer;
+      font-size: 12px;
+      color: var(--brand-blue);
+      margin-top: 4px;
+    }
+    details[open] .answer-preview {
+      -webkit-line-clamp: unset;
+      max-height: none;
+    }
+    .rationale {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      max-width: 200px;
+    }
+    .category-row {
+      background: var(--brand-blue-soft);
+      font-weight: 700;
+      color: var(--brand-blue);
+    }
+    .category-row td {
+      padding: 8px 12px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>KeystoneBot Eval Grader</h1>
+        <div class="subtitle">20 questions · Bot: claude-haiku-4-5 · Judge: claude-sonnet-4-5</div>
+      </div>
+      <div class="subtitle" id="runMeta"></div>
+    </header>
+
+    <div class="controls">
+      <button id="runBtn">Run all evals</button>
+      <button id="downloadBtn" class="secondary" disabled>Download scorecard.md</button>
+      <span class="subtitle" id="progress"></span>
+    </div>
+
+    <div class="status" id="status">Ready. Click "Run all evals" to start. Estimated time: ~3-5 minutes (20 questions × ~10s each).</div>
+
+    <div class="summary" id="summary"></div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Q</th>
+          <th>Question</th>
+          <th>Answer (preview)</th>
+          <th>A — Accuracy</th>
+          <th>C — Citation</th>
+          <th>R — Refusal</th>
+          <th>X — Conflict</th>
+          <th>F — Format</th>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <script>
+    const WORKER_URL = 'https://keystonebot-worker.caseyvillanueva.workers.dev';
+
+    // Embedded question set — mirrors evals/questions.md
+    const QUESTIONS = [
+      // Category 1: Clean retrieval
+      { id: 'Q1',  category: 'Clean retrieval', question: "How much PTO do I get per year?",
+        expected: "25 days (200 hours) per year for full-time salaried employees, accrued biweekly at ~7.69 hours per pay period. Accrual starts on day one with no waiting period.",
+        dimensions: ['accuracy','citation','formatting'] },
+      { id: 'Q2',  category: 'Clean retrieval', question: "What's the parental leave policy at Keystone?",
+        expected: "16 weeks fully paid Parental Bonding Leave for all new parents. Birthing parents get an additional 6 weeks of Medical Recovery Leave on top, totaling up to 22 weeks. Must be used within 12 months of arrival. Can be split into up to two blocks of 2+ weeks each.",
+        dimensions: ['accuracy','citation','formatting'] },
+      { id: 'Q3',  category: 'Clean retrieval', question: "What's the 401(k) match?",
+        expected: "100% match of the first 5% of eligible compensation. Match is contributed each pay period. Vests on a 3-year cliff (your own contributions are always 100% vested). Auto-enrollment is 5% pre-tax after 30 days.",
+        dimensions: ['accuracy','citation','formatting'] },
+      { id: 'Q4',  category: 'Clean retrieval', question: "What's the expense receipt threshold?",
+        expected: "$25 for itemized receipts. Expenses of $25 or more require an itemized receipt in Concur. Under $25 doesn't require a receipt but you still need date, vendor, amount, and business purpose. Some categories (client/candidate meals, all travel) require receipts regardless of amount.",
+        dimensions: ['accuracy','citation','formatting'] },
+      { id: 'Q5',  category: 'Clean retrieval', question: "How does the Keystone Anniversary Benefit work?",
+        expected: "At every 5-year service anniversary, employees receive a 2-week paid sabbatical (in addition to PTO) plus a $2,500 travel stipend. Must be used within 12 months of the anniversary date. Stipend cannot be taken as cash and is taxable. Receipt threshold for the stipend is $75 (an exception to the standard $25 rule).",
+        dimensions: ['accuracy','citation','formatting'] },
+      { id: 'Q6',  category: 'Clean retrieval', question: "Can I bring my dog to the lot?",
+        expected: "Yes, with restrictions. Dogs are allowed on Tuesdays and Thursdays only, in Building One, Building Three, and the Quad outdoor area. Not allowed in Buildings Two, Four, or Five. Registration required (vaccinations, liability waiver, $25 admin fee). Dogs only — not other pets, except ADA service animals which are always permitted.",
+        dimensions: ['accuracy','citation','formatting'] },
+
+      // Category 2: Conflict detection
+      { id: 'Q7',  category: 'Conflict detection', question: "Can I roll over my unused PTO to next year?",
+        expected: "No. PTO accrues until the 240-hour cap, then accrual pauses until you use some down. No separate rollover mechanism.",
+        dimensions: ['accuracy','citation','conflict','formatting'],
+        expected_conflict_platform: 'Viva Engage' },
+      { id: 'Q8',  category: 'Conflict detection', question: "Can I cash out my unused Lot Days?",
+        expected: "No. Lot Days cannot be cashed out under any circumstance, including termination. Unused Lot Days expire at the end of the shutdown window.",
+        dimensions: ['accuracy','citation','conflict','formatting'],
+        expected_conflict_platform: 'Confluence' },
+      { id: 'Q9',  category: 'Conflict detection', question: "Are KeystoneLand tickets transferable?",
+        expected: "No. Tickets are not transferable. The employee must be present at the gate with valid Keystone ID. Guests can come with the employee, but tickets cannot be given to non-employees to use without the employee present. Tickets handed off without the employee are invalidated at the gate.",
+        dimensions: ['accuracy','citation','conflict','formatting'],
+        expected_conflict_platform: 'Confluence' },
+      { id: 'Q10', category: 'Conflict detection', question: "Do KeystoneLand tickets roll over year to year?",
+        expected: "No. Tickets roll over within the same calendar year only. All unused tickets expire on December 31 and do not carry into the next calendar year.",
+        dimensions: ['accuracy','citation','conflict','formatting'],
+        expected_conflict_platform: 'Viva Engage' },
+      { id: 'Q11', category: 'Conflict detection', question: "How long is parental leave for non-birthing parents?",
+        expected: "16 weeks of fully paid Parental Bonding Leave — the same as birthing parents get for bonding. The only difference is birthing parents get an additional 6 weeks of Medical Recovery Leave on top.",
+        dimensions: ['accuracy','citation','conflict','formatting'],
+        expected_conflict_platform: 'SharePoint' },
+
+      // Category 3: Graceful refusal
+      { id: 'Q12', category: 'Graceful refusal', question: "What's the WiFi password for the conference room?",
+        expected: "Bot should decline (no WiFi info in HR docs) and direct to IT support or hr@keystone.studio. Should not invent a password.",
+        dimensions: ['refusal','formatting'] },
+      { id: 'Q13', category: 'Graceful refusal', question: "When is the company holiday party this year?",
+        expected: "Bot should decline (specific event dates not in policy docs) and route to hr@keystone.studio or #ask-people-ops. Should not invent a date.",
+        dimensions: ['refusal','formatting'] },
+      { id: 'Q14', category: 'Graceful refusal', question: "Who's the CEO of Keystone Studios?",
+        expected: "Bot should decline gracefully — no CEO name appears in retrieval corpus. Should not invent a name.",
+        dimensions: ['refusal','formatting'] },
+      { id: 'Q15', category: 'Graceful refusal', question: "Can you help me draft a Slack message to my manager asking for a raise?",
+        expected: "Bot should decline — compensation conversations aren't in scope. Direct to manager or hr@keystone.studio. Should NOT attempt to write the Slack message.",
+        dimensions: ['refusal','formatting'] },
+      { id: 'Q16', category: 'Graceful refusal', question: "How do I file a workers' compensation claim?",
+        expected: "Bot should decline — workers' comp procedures aren't in the 6 authoritative docs. Should direct to hr@keystone.studio or leaves@keystone.studio.",
+        dimensions: ['refusal','formatting'] },
+
+      // Category 4: Edge cases
+      { id: 'Q17', category: 'Edge cases', question: "If I leave Keystone, do I keep my unused Lot Days?",
+        expected: "No, Lot Days cannot be cashed out at separation. However, unused accrued PTO IS paid out in your final paycheck. The bot should clearly distinguish these two — Lot Days are forfeit, PTO is paid out.",
+        dimensions: ['accuracy','citation','formatting'] },
+      { id: 'Q18', category: 'Edge cases', question: "My partner is having a baby via surrogacy and I'm not the birthing parent. How much leave do I get?",
+        expected: "16 weeks of fully paid Parental Bonding Leave. The full 16 weeks apply regardless of whether path is birth, adoption, surrogacy, or foster-to-adopt — leave is not reduced because there's no birth event.",
+        dimensions: ['accuracy','citation','formatting'] },
+      { id: 'Q19', category: 'Edge cases', question: "Can I expense my Uber to and from the office?",
+        expected: "No. Commuting between home and your regular work location is explicitly NOT reimbursable. The bot should cite the Expense Policy.",
+        dimensions: ['accuracy','citation','formatting'] },
+      { id: 'Q20', category: 'Edge cases', question: "Is it OK to date a coworker?",
+        expected: "Yes, consensual relationships between coworkers are permitted, but NOT across a direct reporting line. If a relationship develops with someone in your reporting chain, you must disclose to People Operations within 30 days. The same rule applies to production hierarchy.",
+        dimensions: ['accuracy','citation','formatting'] },
+    ];
+
+    const runBtn = document.getElementById('runBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const statusEl = document.getElementById('status');
+    const progressEl = document.getElementById('progress');
+    const tbody = document.getElementById('tbody');
+    const summaryEl = document.getElementById('summary');
+    const runMetaEl = document.getElementById('runMeta');
+
+    const results = [];
+    let runStartTime = null;
+
+    function buildTableSkeleton() {
+      tbody.innerHTML = '';
+      let lastCategory = null;
+      for (const q of QUESTIONS) {
+        if (q.category !== lastCategory) {
+          lastCategory = q.category;
+          const catRow = document.createElement('tr');
+          catRow.className = 'category-row';
+          catRow.innerHTML = `<td colspan="9">${q.category}</td>`;
+          tbody.appendChild(catRow);
+        }
+        const tr = document.createElement('tr');
+        tr.id = `row-${q.id}`;
+        tr.innerHTML = `
+          <td class="q-id">${q.id}</td>
+          <td class="q-text">${escapeHtml(q.question)}</td>
+          <td class="answer-cell"><span class="verdict verdict-pending">pending</span></td>
+          <td>${verdictCell('accuracy', q)}</td>
+          <td>${verdictCell('citation', q)}</td>
+          <td>${verdictCell('refusal', q)}</td>
+          <td>${verdictCell('conflict', q)}</td>
+          <td>${verdictCell('formatting', q)}</td>
+          <td>—</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+
+    function verdictCell(dim, q) {
+      if (!q.dimensions.includes(dim)) {
+        return `<span class="verdict verdict-na">n/a</span>`;
+      }
+      return `<span class="verdict verdict-pending">pending</span>`;
+    }
+
+    async function runAll() {
+      runBtn.disabled = true;
+      downloadBtn.disabled = true;
+      results.length = 0;
+      runStartTime = new Date();
+      runMetaEl.textContent = `Run started: ${runStartTime.toLocaleString()}`;
+
+      buildTableSkeleton();
+      summaryEl.classList.remove('show');
+
+      for (let i = 0; i < QUESTIONS.length; i++) {
+        const q = QUESTIONS[i];
+        progressEl.textContent = `Running ${i + 1} of ${QUESTIONS.length}: ${q.id}…`;
+        statusEl.textContent = `${q.id} — ${q.question}`;
+
+        try {
+          const result = await runOne(q);
+          results.push(result);
+          renderRow(q, result);
+        } catch (err) {
+          console.error(`Failed on ${q.id}:`, err);
+          const errorResult = {
+            question: q,
+            chatError: String(err),
+            actualAnswer: '',
+            sources: [],
+            conflicts: [],
+            durationMs: 0,
+            grades: null,
+            gradeError: 'Skipped due to chat error',
+          };
+          results.push(errorResult);
+          renderRow(q, errorResult);
+        }
+      }
+
+      progressEl.textContent = `Done. ${QUESTIONS.length} of ${QUESTIONS.length} graded.`;
+      statusEl.textContent = 'Eval run complete. Review the table above, then click "Download scorecard.md".';
+      renderSummary();
+      summaryEl.classList.add('show');
+      downloadBtn.disabled = false;
+      runBtn.disabled = false;
+    }
+
+    async function runOne(q) {
+      const chatStart = Date.now();
+      const chatResp = await fetch(`${WORKER_URL}/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: q.question }),
+      });
+      if (!chatResp.ok) throw new Error(`/chat returned ${chatResp.status}`);
+      const chatData = await chatResp.json();
+      const durationMs = Date.now() - chatStart;
+
+      const gradeBody = {
+        question: q.question,
+        expected_answer: q.expected,
+        actual_answer: chatData.answer,
+        sources: chatData.sources,
+        conflicts: chatData.conflicts,
+        dimensions_to_score: q.dimensions,
+      };
+      if (q.expected_conflict_platform) {
+        gradeBody.expected_conflict_platform = q.expected_conflict_platform;
+      }
+
+      const gradeResp = await fetch(`${WORKER_URL}/grade`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(gradeBody),
+      });
+      if (!gradeResp.ok) throw new Error(`/grade returned ${gradeResp.status}`);
+      const gradeData = await gradeResp.json();
+
+      return {
+        question: q,
+        actualAnswer: chatData.answer,
+        sources: chatData.sources || [],
+        conflicts: chatData.conflicts || [],
+        durationMs,
+        grades: gradeData.grades,
+        chatError: null,
+        gradeError: gradeData.status === 'error' ? gradeData.message : null,
+      };
+    }
+
+    function renderRow(q, result) {
+      const row = document.getElementById(`row-${q.id}`);
+      if (!row) return;
+      const cells = row.querySelectorAll('td');
+
+      // Answer preview
+      const answerCell = cells[2];
+      if (result.chatError) {
+        answerCell.innerHTML = `<span class="verdict verdict-fail">error</span><div class="rationale">${escapeHtml(result.chatError)}</div>`;
+      } else {
+        answerCell.innerHTML = `
+          <div class="answer-preview">${escapeHtml(result.actualAnswer)}</div>
+          <details><summary>Expand</summary>
+            <div style="white-space: pre-wrap; font-size: 12px; margin-top: 6px;">${escapeHtml(result.actualAnswer)}</div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
+              Sources: ${result.sources.map(s => `${s.doc_name} [${s.authority}]`).join(', ')}<br>
+              Conflicts: ${result.conflicts.length > 0 ? result.conflicts.map(c => c.forum_platform).join(', ') : '(none)'}
+            </div>
+          </details>
+        `;
+      }
+
+      // Dimension cells
+      const dimOrder = ['accuracy','citation','refusal','conflict','formatting'];
+      dimOrder.forEach((dim, idx) => {
+        const cell = cells[3 + idx];
+        if (!q.dimensions.includes(dim)) {
+          cell.innerHTML = `<span class="verdict verdict-na">n/a</span>`;
+          return;
+        }
+        if (!result.grades || !result.grades[dim]) {
+          cell.innerHTML = `<span class="verdict verdict-fail">error</span>`;
+          return;
+        }
+        const g = result.grades[dim];
+        const cls = g.verdict === 'pass' ? 'verdict-pass' : g.verdict === 'fail' ? 'verdict-fail' : 'verdict-na';
+        cell.innerHTML = `
+          <span class="verdict ${cls}">${g.verdict}</span>
+          <div class="rationale">${escapeHtml(g.rationale || '')}</div>
+        `;
+      });
+
+      // Duration
+      cells[8].textContent = `${(result.durationMs / 1000).toFixed(1)}s`;
+    }
+
+    function renderSummary() {
+      const byCategory = {};
+      let totalScored = 0, totalPass = 0;
+      const dimTotals = { accuracy: { p: 0, t: 0 }, citation: { p: 0, t: 0 }, refusal: { p: 0, t: 0 }, conflict: { p: 0, t: 0 }, formatting: { p: 0, t: 0 } };
+
+      for (const r of results) {
+        const cat = r.question.category;
+        if (!byCategory[cat]) byCategory[cat] = { pass: 0, total: 0 };
+        if (!r.grades) continue;
+        for (const dim of r.question.dimensions) {
+          const g = r.grades[dim];
+          if (!g) continue;
+          if (g.verdict === 'n/a') continue;
+          totalScored++;
+          byCategory[cat].total++;
+          dimTotals[dim].t++;
+          if (g.verdict === 'pass') {
+            totalPass++;
+            byCategory[cat].pass++;
+            dimTotals[dim].p++;
+          }
+        }
+      }
+
+      const pct = (p, t) => t === 0 ? '—' : `${Math.round(100 * p / t)}%`;
+
+      summaryEl.innerHTML = `
+        <div style="font-size: 16px; font-weight: 700;">
+          Overall pass rate: ${pct(totalPass, totalScored)} (${totalPass} / ${totalScored} scored dimensions)
+        </div>
+        <div class="summary-grid">
+          ${Object.entries(byCategory).map(([cat, s]) => `
+            <div class="summary-cell">
+              <div class="summary-cell-label">${cat}</div>
+              <div class="summary-cell-value">${pct(s.pass, s.total)}</div>
+              <div class="subtitle">${s.pass} / ${s.total} dims</div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="summary-grid" style="margin-top: 12px;">
+          ${Object.entries(dimTotals).map(([dim, d]) => `
+            <div class="summary-cell">
+              <div class="summary-cell-label">${dim}</div>
+              <div class="summary-cell-value">${pct(d.p, d.t)}</div>
+              <div class="subtitle">${d.p} / ${d.t}</div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    function buildScorecardMd() {
+      const lines = [];
+      lines.push('# KeystoneBot Eval Scorecard');
+      lines.push('');
+      lines.push(`**Run**: ${runStartTime.toLocaleString()}`);
+      lines.push(`**Bot model**: claude-haiku-4-5`);
+      lines.push(`**Judge model**: claude-sonnet-4-5`);
+      lines.push(`**Total questions**: ${QUESTIONS.length}`);
+      lines.push('');
+
+      // Overall + dim summary
+      const byCategory = {};
+      let totalScored = 0, totalPass = 0;
+      const dimTotals = { accuracy: { p: 0, t: 0 }, citation: { p: 0, t: 0 }, refusal: { p: 0, t: 0 }, conflict: { p: 0, t: 0 }, formatting: { p: 0, t: 0 } };
+      for (const r of results) {
+        const cat = r.question.category;
+        if (!byCategory[cat]) byCategory[cat] = { pass: 0, total: 0 };
+        if (!r.grades) continue;
+        for (const dim of r.question.dimensions) {
+          const g = r.grades[dim];
+          if (!g || g.verdict === 'n/a') continue;
+          totalScored++;
+          byCategory[cat].total++;
+          dimTotals[dim].t++;
+          if (g.verdict === 'pass') {
+            totalPass++;
+            byCategory[cat].pass++;
+            dimTotals[dim].p++;
+          }
+        }
+      }
+      const pct = (p, t) => t === 0 ? '—' : `${Math.round(100 * p / t)}%`;
+
+      lines.push('## Overall');
+      lines.push('');
+      lines.push(`**Pass rate**: ${pct(totalPass, totalScored)} (${totalPass} / ${totalScored} scored dimensions)`);
+      lines.push('');
+
+      lines.push('## By category');
+      lines.push('');
+      lines.push('| Category | Pass rate | Pass / Total |');
+      lines.push('|---|---|---|');
+      for (const [cat, s] of Object.entries(byCategory)) {
+        lines.push(`| ${cat} | ${pct(s.pass, s.total)} | ${s.pass} / ${s.total} |`);
+      }
+      lines.push('');
+
+      lines.push('## By dimension');
+      lines.push('');
+      lines.push('| Dimension | Pass rate | Pass / Total |');
+      lines.push('|---|---|---|');
+      for (const [dim, d] of Object.entries(dimTotals)) {
+        lines.push(`| ${dim} | ${pct(d.p, d.t)} | ${d.p} / ${d.t} |`);
+      }
+      lines.push('');
+
+      lines.push('## Per-question results');
+      lines.push('');
+      for (const r of results) {
+        const q = r.question;
+        lines.push(`### ${q.id} — ${q.question}`);
+        lines.push('');
+        lines.push(`**Category**: ${q.category}`);
+        lines.push(`**Duration**: ${(r.durationMs / 1000).toFixed(1)}s`);
+        lines.push('');
+        if (r.chatError) {
+          lines.push(`**Error**: ${r.chatError}`);
+          lines.push('');
+          continue;
+        }
+        lines.push(`**Sources**: ${r.sources.map(s => `${s.doc_name} [${s.authority}]`).join(', ') || '(none)'}`);
+        lines.push(`**Conflicts detected**: ${r.conflicts.length > 0 ? r.conflicts.map(c => c.forum_platform).join(', ') : '(none)'}`);
+        lines.push('');
+        lines.push(`**Answer**:`);
+        lines.push('');
+        lines.push('> ' + r.actualAnswer.split('\n').join('\n> '));
+        lines.push('');
+        if (r.grades) {
+          lines.push(`**Grades** (judge: claude-sonnet-4-5):`);
+          lines.push('');
+          for (const dim of ['accuracy','citation','refusal','conflict','formatting']) {
+            const g = r.grades[dim];
+            if (!g) continue;
+            const emoji = g.verdict === 'pass' ? '✅' : g.verdict === 'fail' ? '❌' : '⚪';
+            lines.push(`- ${emoji} **${dim}**: ${g.verdict} — ${g.rationale || ''}`);
+          }
+          lines.push('');
+        } else if (r.gradeError) {
+          lines.push(`**Grading error**: ${r.gradeError}`);
+          lines.push('');
+        }
+      }
+
+      lines.push('## Manual overrides');
+      lines.push('');
+      lines.push('*Use this section to document any auto-grade verdicts you disagree with after manual review. For each override, note the question ID, the dimension, the original verdict, your corrected verdict, and your one-sentence rationale.*');
+      lines.push('');
+      lines.push('| Question | Dimension | Auto verdict | Manual verdict | Rationale |');
+      lines.push('|---|---|---|---|---|');
+      lines.push('| _none yet_ | | | | |');
+      lines.push('');
+
+      return lines.join('\n');
+    }
+
+    downloadBtn.addEventListener('click', () => {
+      const md = buildScorecardMd();
+      const blob = new Blob([md], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'scorecard.md';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    runBtn.addEventListener('click', runAll);
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    buildTableSkeleton();
+  </script>
+</body>
+</html>
