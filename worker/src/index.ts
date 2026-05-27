@@ -1,5 +1,5 @@
 /**
- * KeystoneBot Worker — Phase 4A ingestion ready
+ * KeystoneBot Worker — Phase 4A ingestion (hash-ID fix)
  *
  * Endpoints:
  *   - GET  /              → "Hello from KeystoneBot" (deploy check)
@@ -164,13 +164,20 @@ type DocMetadata = Record<string, string>;
 
 interface Chunk {
   id: string;
+  readableId: string;
   text: string;
   metadata: Record<string, string | number>;
 }
 
 async function runIngestion(env: Env): Promise<Response> {
   const startTime = Date.now();
-  const perDoc: Array<{ path: string; chunks: number; ok: boolean; error?: string }> = [];
+  const perDoc: Array<{
+    path: string;
+    chunks: number;
+    ok: boolean;
+    error?: string;
+    sample_ids?: string[];
+  }> = [];
   let totalChunks = 0;
 
   for (const docPath of DOCS_TO_INGEST) {
@@ -178,10 +185,8 @@ async function runIngestion(env: Env): Promise<Response> {
       const raw = await fetchDoc(docPath);
       const { frontmatter, body } = parseFrontmatter(raw);
       const docMeta = buildDocMetadata(docPath, frontmatter);
-      const chunks = chunkByHeadings(body, docPath, docMeta);
+      const chunks = await chunkByHeadings(body, docPath, docMeta);
 
-      // Embed and upload in batches (Workers AI handles single-shot fine, but we batch
-      // the Vectorize upserts so a single failure doesn't lose all chunks for the doc).
       const vectors: VectorizeVector[] = [];
       for (const chunk of chunks) {
         const embedding = await embedText(env, chunk.text);
@@ -196,7 +201,12 @@ async function runIngestion(env: Env): Promise<Response> {
         await env.VECTORIZE.upsert(vectors);
       }
 
-      perDoc.push({ path: docPath, chunks: vectors.length, ok: true });
+      perDoc.push({
+        path: docPath,
+        chunks: vectors.length,
+        ok: true,
+        sample_ids: chunks.slice(0, 2).map((c) => c.readableId),
+      });
       totalChunks += vectors.length;
     } catch (err: any) {
       perDoc.push({
@@ -220,7 +230,6 @@ async function runIngestion(env: Env): Promise<Response> {
 }
 
 async function ingestionStatus(env: Env): Promise<Response> {
-  // Vectorize doesn't expose a raw count via the binding, so we use the REST API.
   const endpoint = `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/vectorize/v2/indexes/${INDEX_NAME}/info`;
   const resp = await fetch(endpoint, {
     headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}` },
@@ -252,8 +261,6 @@ async function fetchDoc(path: string): Promise<string> {
 
 /**
  * Parse YAML-style frontmatter (---\nkey: value\n---) from the top of a doc.
- * Returns { frontmatter: {key: value, ...}, body: "rest of doc" }.
- * Frontmatter is optional — if not present, returns empty object and full text as body.
  */
 function parseFrontmatter(raw: string): { frontmatter: DocMetadata; body: string } {
   const fmMatch = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
@@ -277,12 +284,10 @@ function parseFrontmatter(raw: string): { frontmatter: DocMetadata; body: string
 
 /**
  * Build per-doc metadata that will be attached to every chunk from that doc.
- * Authoritative docs default to authority=high; forum docs come tagged in frontmatter.
  */
 function buildDocMetadata(docPath: string, frontmatter: DocMetadata): DocMetadata {
   const isAuthoritative = docPath.includes('/authoritative/');
 
-  // Extract a "doc_name" from the path (e.g. "pto-policy" → "PTO Policy")
   const filename = docPath.split('/').pop()!.replace(/\.md$/, '');
   const docName = filename
     .split('-')
@@ -302,65 +307,96 @@ function buildDocMetadata(docPath: string, frontmatter: DocMetadata): DocMetadat
 }
 
 /**
- * Chunk a markdown body at heading boundaries (## and ###).
+ * Chunk a markdown body at heading boundaries.
  *
- * Each chunk includes the doc title context + the section heading so that retrieved
- * chunks are self-contained when they reach the LLM. If any single section exceeds
- * MAX_CHUNK_CHARS, we split it on paragraph boundaries.
+ * Each chunk includes the doc title + section heading so retrieved chunks are
+ * self-contained. Sections over MAX_CHUNK_CHARS split on paragraph boundaries.
+ *
+ * Now async because chunk IDs are SHA-256 hashes (Web Crypto is async).
  */
-function chunkByHeadings(
+async function chunkByHeadings(
   body: string,
   docPath: string,
   docMeta: DocMetadata
-): Chunk[] {
+): Promise<Chunk[]> {
   const chunks: Chunk[] = [];
 
-  // Extract the H1 title (e.g. "# PTO Policy") as a context prefix for all chunks
   const h1Match = body.match(/^#\s+(.+)$/m);
   const docTitle = h1Match ? h1Match[1].trim() : docMeta.doc_name;
 
-  // Split on H2 boundaries. Each section starts with "## ..." and runs until the next "## " or EOF.
+  // Split on H2 boundaries
   const sections = body.split(/^##\s+/m);
 
-  // The first split element is anything before the first H2 (frontmatter remnants, intro paragraphs).
-  // Treat it as a "preamble" chunk only if it has substantive text.
+  // Preamble (anything before the first H2)
   const preamble = sections[0].trim();
   if (preamble.length > 100) {
+    const readableId = makeReadableId(docPath, 'preamble');
     chunks.push({
-      id: makeChunkId(docPath, 'preamble'),
+      id: await hashId(readableId),
+      readableId,
       text: `# ${docTitle}\n\n${preamble}`,
-      metadata: { ...docMeta, section_heading: 'preamble' },
+      metadata: {
+        ...docMeta,
+        section_heading: 'preamble',
+        chunk_id_readable: readableId,
+        part: '0',
+      },
     });
   }
 
-  // Process each H2-and-below section
+  // Each H2 section
   for (let i = 1; i < sections.length; i++) {
     const sectionText = sections[i];
+
+    // Defensive: if section has no newline (file ends right after heading), bail.
     const headingEnd = sectionText.indexOf('\n');
-    const sectionHeading = sectionText.slice(0, headingEnd).trim();
-    const sectionBody = sectionText.slice(headingEnd).trim();
+    const sectionHeading =
+      headingEnd === -1
+        ? sectionText.trim()
+        : sectionText.slice(0, headingEnd).trim();
+    const sectionBody =
+      headingEnd === -1 ? '' : sectionText.slice(headingEnd).trim();
+
+    if (!sectionHeading) continue;
 
     const fullSection = `# ${docTitle}\n\n## ${sectionHeading}\n\n${sectionBody}`;
 
     if (fullSection.length <= MAX_CHUNK_CHARS) {
+      const readableId = makeReadableId(docPath, sectionHeading);
       chunks.push({
-        id: makeChunkId(docPath, sectionHeading),
+        id: await hashId(readableId),
+        readableId,
         text: fullSection,
-        metadata: { ...docMeta, section_heading: sectionHeading },
+        metadata: {
+          ...docMeta,
+          section_heading: sectionHeading,
+          chunk_id_readable: readableId,
+          part: '0',
+        },
       });
     } else {
-      // Split oversized section on paragraph boundaries (blank lines)
+      // Oversized — split on paragraph boundaries
       const paragraphs = sectionBody.split(/\n\s*\n/);
       const header = `# ${docTitle}\n\n## ${sectionHeading}\n\n`;
       let current = header;
       let partIndex = 0;
 
       for (const para of paragraphs) {
-        if ((current + para).length > MAX_CHUNK_CHARS && current.length > header.length) {
+        if (
+          (current + para).length > MAX_CHUNK_CHARS &&
+          current.length > header.length
+        ) {
+          const readableId = makeReadableId(docPath, sectionHeading, partIndex);
           chunks.push({
-            id: makeChunkId(docPath, sectionHeading, partIndex),
+            id: await hashId(readableId),
+            readableId,
             text: current.trim(),
-            metadata: { ...docMeta, section_heading: sectionHeading, part: String(partIndex) },
+            metadata: {
+              ...docMeta,
+              section_heading: sectionHeading,
+              chunk_id_readable: readableId,
+              part: String(partIndex),
+            },
           });
           partIndex++;
           current = header;
@@ -369,10 +405,17 @@ function chunkByHeadings(
       }
 
       if (current.length > header.length) {
+        const readableId = makeReadableId(docPath, sectionHeading, partIndex);
         chunks.push({
-          id: makeChunkId(docPath, sectionHeading, partIndex),
+          id: await hashId(readableId),
+          readableId,
           text: current.trim(),
-          metadata: { ...docMeta, section_heading: sectionHeading, part: String(partIndex) },
+          metadata: {
+            ...docMeta,
+            section_heading: sectionHeading,
+            chunk_id_readable: readableId,
+            part: String(partIndex),
+          },
         });
       }
     }
@@ -382,18 +425,27 @@ function chunkByHeadings(
 }
 
 /**
- * Generate a stable, unique chunk ID. Stable = same doc + same heading produces the
- * same ID, which means re-running ingestion overwrites (upserts) rather than duplicates.
+ * Human-readable chunk ID — kept in metadata for debuggability.
+ * Example: "docs/forum/viva-pto-rollover-myth.md::frequently-confused-points::p0"
  */
-function makeChunkId(docPath: string, heading: string, part?: number): string {
+function makeReadableId(docPath: string, heading: string, part?: number): string {
   const slug = (s: string) =>
-    s
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 60);
-  const id = `${slug(docPath)}::${slug(heading)}`;
-  return part !== undefined ? `${id}::p${part}` : id;
+    s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const base = `${docPath}::${slug(heading)}`;
+  return part !== undefined ? `${base}::p${part}` : `${base}::p0`;
+}
+
+/**
+ * Hash-based ID: "kb_" + first 16 hex chars of SHA-256.
+ * Always exactly 19 bytes — well under Vectorize's 64-byte cap.
+ * Stable: same readableId always produces the same hash, so re-ingestion upserts.
+ */
+async function hashId(readableId: string): Promise<string> {
+  const data = new TextEncoder().encode(readableId);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `kb_${hex.slice(0, 16)}`;
 }
 
 /**
@@ -401,6 +453,5 @@ function makeChunkId(docPath: string, heading: string, part?: number): string {
  */
 async function embedText(env: Env, text: string): Promise<number[]> {
   const result = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: [text] });
-  // Workers AI returns { shape, data: [[...embedding...]] }
   return (result as any).data[0];
 }
