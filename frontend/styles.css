@@ -19,7 +19,7 @@
   --user-bubble: var(--brand-blue);
   --user-bubble-text: #FFFFFF;
 
-  /* Semantic colors for authority — kept distinct from brand so the trust hierarchy stays legible */
+  /* Semantic colors for authority */
   --auth-bg: #F0FDF4;
   --auth-border: #BBF7D0;
   --auth-text: #166534;
@@ -79,6 +79,21 @@ body {
 .brand-divider { color: var(--text-subtle); }
 .brand-product { color: var(--text-muted); }
 
+/* Demo pill — small persistent reminder that this is a demo */
+.demo-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand-blue);
+  background: var(--brand-blue-soft);
+  border-radius: 999px;
+  line-height: 1.4;
+}
+
 /* Toggle */
 .toggle {
   display: flex;
@@ -135,17 +150,34 @@ body {
   align-items: center;
   gap: 28px;
 }
+.empty-greeting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
 .empty-greeting h1 {
   font-size: 24px;
-  margin: 0 0 10px;
+  margin: 0;
   font-weight: 600;
   color: var(--text);
 }
 .empty-greeting p {
   margin: 0;
   color: var(--text-muted);
-  max-width: 480px;
+  max-width: 520px;
 }
+
+/* Demo disclaimer — subtle italic text below greeting */
+.empty-disclaimer {
+  font-size: 12.5px;
+  font-style: italic;
+  color: var(--text-subtle) !important;
+  max-width: 480px !important;
+  line-height: 1.5;
+  margin-top: 4px !important;
+}
+
 .suggestions {
   display: flex;
   flex-direction: column;
@@ -178,22 +210,12 @@ body {
   gap: 10px;
   max-width: 100%;
 }
-.message.user {
-  justify-content: flex-end;
-}
-.message.bot {
-  justify-content: flex-start;
-  width: 100%;
-}
-.message.user .bubble-wrap {
-  max-width: 80%;
-}
-.message.bot .bubble-wrap {
-  flex: 1;
-  min-width: 0;
-}
+.message.user { justify-content: flex-end; }
+.message.bot { justify-content: flex-start; width: 100%; }
+.message.user .bubble-wrap { max-width: 80%; }
+.message.bot .bubble-wrap { flex: 1; min-width: 0; }
 
-/* Bot avatar — K monogram in brand-blue circle */
+/* Bot avatar */
 .bot-avatar {
   width: 32px;
   height: 32px;
@@ -235,7 +257,7 @@ body {
 .bubble ul, .bubble ol { margin: 8px 0; padding-left: 22px; }
 .bubble li { margin-bottom: 4px; }
 
-/* Markdown headers rendered inside bot bubbles (safety net — prompt discourages them) */
+/* Markdown headers in bot bubbles */
 .bubble h3 {
   font-size: 15px;
   font-weight: 700;
@@ -244,7 +266,6 @@ body {
   letter-spacing: -0.01em;
 }
 .bubble h3:first-child { margin-top: 0; }
-
 .bubble h4 {
   font-size: 14px;
   font-weight: 600;
@@ -393,4 +414,5 @@ body {
   .empty-state { margin-top: 6vh; }
   .composer { padding: 12px; }
   .bot-avatar { width: 28px; height: 28px; font-size: 12px; }
+  .demo-pill { font-size: 9px; padding: 1px 6px; }
 }
