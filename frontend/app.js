@@ -9,6 +9,7 @@ const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
 const conflictToggle = document.getElementById('conflictToggle');
 const roleSelect = document.getElementById('roleSelect');
+const languageSelect = document.getElementById('languageSelect');
 const composerSlotCenter = document.getElementById('composerSlotCenter');
 const composerSlotBottom = document.getElementById('composerSlotBottom');
 
@@ -23,6 +24,16 @@ if (savedRole && ['default', 'hourly', 'executive'].includes(savedRole)) {
 }
 roleSelect.addEventListener('change', () => {
   localStorage.setItem(ROLE_STORAGE_KEY, roleSelect.value);
+});
+
+// On load: restore language selection from localStorage
+const LANGUAGE_STORAGE_KEY = 'keystonebot:language';
+const savedLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+if (savedLanguage && ['en', 'es', 'fr'].includes(savedLanguage)) {
+  languageSelect.value = savedLanguage;
+}
+languageSelect.addEventListener('change', () => {
+  localStorage.setItem(LANGUAGE_STORAGE_KEY, languageSelect.value);
 });
 
 // On load: park the composer in the centered slot
@@ -58,7 +69,7 @@ form.addEventListener('submit', async (e) => {
     const resp = await fetch(`${WORKER_URL}/chat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ message, role: roleSelect.value }),
+      body: JSON.stringify({ message, role: roleSelect.value, language: languageSelect.value }),
     });
     if (!resp.ok) throw new Error(`Server ${resp.status}`);
     const data = await resp.json();
