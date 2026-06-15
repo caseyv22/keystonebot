@@ -135,16 +135,35 @@ function addBotMessage(data) {
   scrollToBottom();
 }
 
-function renderBotMessageBody(el, { answer, sources = [], conflicts = [] }) {
+function renderBotMessageBody(el, data) {
   const showConflicts = conflictToggle.checked;
   const wrap = el.querySelector('.bubble-wrap');
   wrap.innerHTML = '';
 
-  const bubble = document.createElement('div');
-  bubble.className = 'bubble';
-  bubble.innerHTML = renderMarkdown(answer);
-  wrap.appendChild(bubble);
+  // Claude's narration always renders as a bubble (when present)
+  if (data.answer) {
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.innerHTML = renderMarkdown(data.answer);
+    wrap.appendChild(bubble);
+  }
 
+  // Agentic action flows (Phase 6.2) — skip RAG conflict/sources rendering
+  if (data.status === 'pending_confirmation' && data.pending_action) {
+    wrap.appendChild(renderConfirmationCard(data.pending_action, data.replay_context));
+    return;
+  }
+  if (data.tool_executed) {
+    const resultCard = renderToolResultCard(data.tool_executed);
+    if (resultCard) wrap.appendChild(resultCard);
+    return;
+  }
+  if (data.status === 'cancelled') {
+    return; // Just the narration bubble
+  }
+
+  // Normal RAG answer: conflict banner + sources
+  const conflicts = data.conflicts ?? [];
   if (showConflicts && conflicts.length > 0) {
     const banner = document.createElement('div');
     banner.className = 'conflict-banner';
@@ -157,6 +176,7 @@ function renderBotMessageBody(el, { answer, sources = [], conflicts = [] }) {
     wrap.appendChild(banner);
   }
 
+  const sources = data.sources ?? [];
   const filteredSources = showConflicts
     ? sources
     : sources.filter((s) => s.authority === 'high');
@@ -164,6 +184,160 @@ function renderBotMessageBody(el, { answer, sources = [], conflicts = [] }) {
   if (filteredSources.length > 0) {
     wrap.appendChild(renderSources(filteredSources));
   }
+}
+
+// ----------------------------------------------------------------------------
+// Phase 6.2 — Agentic action cards
+// ----------------------------------------------------------------------------
+
+function renderConfirmationCard(pendingAction, replayContext) {
+  const card = document.createElement('div');
+  card.className = 'action-card action-card-pending';
+  card.innerHTML = `
+    <div class="action-card-header">
+      <span class="action-card-icon">📋</span>
+      <span class="action-card-title">Action requires confirmation</span>
+      <span class="action-card-badge">SIMULATED</span>
+    </div>
+    <div class="action-card-body">
+      <p class="action-card-preview">${escapeHtml(pendingAction.preview_text)}</p>
+    </div>
+    <div class="action-card-actions">
+      <button type="button" class="action-btn action-btn-cancel">Cancel</button>
+      <button type="button" class="action-btn action-btn-confirm">Confirm</button>
+    </div>
+    <div class="action-card-footer">No real Workday submission — demo only.</div>
+  `;
+
+  const confirmBtn = card.querySelector('.action-btn-confirm');
+  const cancelBtn = card.querySelector('.action-btn-cancel');
+  confirmBtn.addEventListener('click', () =>
+    handleConfirmAction(card, pendingAction, replayContext, true)
+  );
+  cancelBtn.addEventListener('click', () =>
+    handleConfirmAction(card, pendingAction, replayContext, false)
+  );
+
+  return card;
+}
+
+async function handleConfirmAction(cardEl, pendingAction, replayContext, confirmed) {
+  cardEl.querySelectorAll('.action-btn').forEach((b) => (b.disabled = true));
+
+  try {
+    const resp = await fetch(`${WORKER_URL}/chat/confirm-action`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        confirmed,
+        pending_action: pendingAction,
+        replay_context: replayContext,
+      }),
+    });
+    if (!resp.ok) throw new Error(`Server ${resp.status}`);
+    const data = await resp.json();
+
+    cardEl.classList.add('action-card-resolved');
+    addBotMessage(data);
+  } catch (err) {
+    cardEl.classList.add('action-card-resolved');
+    addBotMessage({
+      answer: 'I ran into a problem completing that action. Please try again.',
+      sources: [],
+      conflicts: [],
+    });
+    console.error(err);
+  }
+}
+
+function renderToolResultCard(toolExecuted) {
+  const card = document.createElement('div');
+  card.className = 'action-card action-card-result';
+
+  const r = toolExecuted.result ?? {};
+
+  switch (toolExecuted.name) {
+    case 'check_pto_balance':
+      card.innerHTML = `
+        <div class="action-card-header">
+          <span class="action-card-icon">📊</span>
+          <span class="action-card-title">PTO Balance</span>
+          <span class="action-card-badge">SIMULATED</span>
+        </div>
+        <div class="action-card-body action-card-stats">
+          <div class="action-card-stat">
+            <span class="action-card-stat-label">PTO remaining</span>
+            <span class="action-card-stat-value">${escapeHtml(String(r.pto_hours_remaining ?? '?'))} hrs <small>/ ${escapeHtml(String(r.pto_hours_total ?? '?'))}</small></span>
+          </div>
+          <div class="action-card-stat">
+            <span class="action-card-stat-label">Lot Days remaining</span>
+            <span class="action-card-stat-value">${escapeHtml(String(r.lot_days_remaining ?? '?'))} / ${escapeHtml(String(r.lot_days_total ?? '?'))}</span>
+          </div>
+          ${r.anniversary_milestone ? `<div class="action-card-stat-note">⭐ ${escapeHtml(r.anniversary_milestone)}</div>` : ''}
+        </div>
+        <div class="action-card-footer">No real Workday data — demo only.</div>
+      `;
+      break;
+
+    case 'submit_pto_request':
+      card.innerHTML = `
+        <div class="action-card-header">
+          <span class="action-card-icon">✅</span>
+          <span class="action-card-title">PTO Request Submitted</span>
+          <span class="action-card-badge">SIMULATED</span>
+        </div>
+        <div class="action-card-body action-card-stats">
+          <div class="action-card-stat">
+            <span class="action-card-stat-label">Confirmation ID</span>
+            <span class="action-card-stat-value action-card-confirmation-id">${escapeHtml(r.confirmation_id ?? '?')}</span>
+          </div>
+          <div class="action-card-stat">
+            <span class="action-card-stat-label">Hours / Date</span>
+            <span class="action-card-stat-value">${escapeHtml(String(r.hours_requested ?? '?'))} hrs · ${escapeHtml(r.date_requested ?? '?')}</span>
+          </div>
+          <div class="action-card-stat">
+            <span class="action-card-stat-label">Manager notified</span>
+            <span class="action-card-stat-value">${escapeHtml(r.manager_notified ?? '—')}</span>
+          </div>
+          <div class="action-card-stat">
+            <span class="action-card-stat-label">Remaining balance</span>
+            <span class="action-card-stat-value">${escapeHtml(String(r.remaining_balance_hours ?? '?'))} hrs</span>
+          </div>
+        </div>
+        <div class="action-card-footer">No real Workday submission — demo only.</div>
+      `;
+      break;
+
+    case 'request_keystoneland_tickets':
+      card.innerHTML = `
+        <div class="action-card-header">
+          <span class="action-card-icon">🎟️</span>
+          <span class="action-card-title">KeystoneLand Tickets Requested</span>
+          <span class="action-card-badge">SIMULATED</span>
+        </div>
+        <div class="action-card-body action-card-stats">
+          <div class="action-card-stat">
+            <span class="action-card-stat-label">Confirmation ID</span>
+            <span class="action-card-stat-value action-card-confirmation-id">${escapeHtml(r.confirmation_id ?? '?')}</span>
+          </div>
+          <div class="action-card-stat">
+            <span class="action-card-stat-label">Tickets / Date</span>
+            <span class="action-card-stat-value">${escapeHtml(String(r.tickets_requested ?? '?'))} · ${escapeHtml(r.date_requested ?? '?')}</span>
+          </div>
+          <div class="action-card-stat">
+            <span class="action-card-stat-label">Remaining this quarter</span>
+            <span class="action-card-stat-value">${escapeHtml(String(r.tickets_remaining_this_quarter ?? '?'))} / 2</span>
+          </div>
+        </div>
+        <div class="action-card-footer">No real ticket reservation — demo only.</div>
+      `;
+      break;
+
+    default:
+      return null;
+  }
+
+  return card;
 }
 
 function createBotMessageShell() {
