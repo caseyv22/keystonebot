@@ -8,11 +8,22 @@ const form = document.getElementById('composer');
 const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
 const conflictToggle = document.getElementById('conflictToggle');
+const roleSelect = document.getElementById('roleSelect');
 const composerSlotCenter = document.getElementById('composerSlotCenter');
 const composerSlotBottom = document.getElementById('composerSlotBottom');
 
 // Cache full /chat response per bot message so we can re-render on toggle change
 const messageData = new WeakMap();
+
+// On load: restore role selection from localStorage
+const ROLE_STORAGE_KEY = 'keystonebot:role';
+const savedRole = localStorage.getItem(ROLE_STORAGE_KEY);
+if (savedRole && ['default', 'park', 'executive'].includes(savedRole)) {
+  roleSelect.value = savedRole;
+}
+roleSelect.addEventListener('change', () => {
+  localStorage.setItem(ROLE_STORAGE_KEY, roleSelect.value);
+});
 
 // On load: park the composer in the centered slot
 composerSlotCenter.appendChild(form);
@@ -47,7 +58,7 @@ form.addEventListener('submit', async (e) => {
     const resp = await fetch(`${WORKER_URL}/chat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, role: roleSelect.value }),
     });
     if (!resp.ok) throw new Error(`Server ${resp.status}`);
     const data = await resp.json();
