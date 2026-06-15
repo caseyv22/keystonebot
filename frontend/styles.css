@@ -440,6 +440,143 @@ body[data-state="chat"] .thread { display: flex; }
 }
 
 /* ============================================================
+   Agentic Action Cards (Phase 6.2)
+   ============================================================ */
+.action-card {
+  margin-top: 12px;
+  border: 1px solid;
+  border-radius: var(--radius);
+  overflow: hidden;
+  font-size: 14px;
+  transition: opacity 0.2s;
+}
+.action-card-pending {
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: var(--warning-text);
+}
+.action-card-result {
+  background: var(--auth-bg);
+  border-color: var(--auth-border);
+  color: var(--auth-text);
+}
+.action-card-resolved {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.action-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  font-size: 13px;
+  font-weight: 600;
+}
+.action-card-icon { font-size: 16px; }
+.action-card-title { flex: 1; }
+.action-card-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.12);
+  color: inherit;
+}
+
+.action-card-body {
+  padding: 12px 14px;
+}
+.action-card-preview {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.action-card-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.action-card-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+.action-card-stat:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.action-card-stat-label {
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.85;
+}
+.action-card-stat-value {
+  font-size: 15px;
+  font-weight: 700;
+}
+.action-card-stat-value small { font-size: 12px; font-weight: 500; opacity: 0.8; }
+.action-card-stat-note {
+  width: 100%;
+  font-size: 12px;
+  font-style: italic;
+  opacity: 0.9;
+  margin-top: 2px;
+}
+.action-card-confirmation-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+.action-card-actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.5);
+}
+.action-btn {
+  flex: 1;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid;
+  transition: background 0.15s, transform 0.1s, opacity 0.15s;
+}
+.action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.action-btn:active:not(:disabled) { transform: scale(0.98); }
+.action-btn-confirm {
+  background: var(--brand-blue);
+  border-color: var(--brand-blue);
+  color: white;
+}
+.action-btn-confirm:hover:not(:disabled) { background: var(--brand-blue-hover); }
+.action-btn-cancel {
+  background: transparent;
+  border-color: currentColor;
+  color: inherit;
+}
+.action-btn-cancel:hover:not(:disabled) { background: rgba(0, 0, 0, 0.06); }
+
+.action-card-footer {
+  padding: 6px 14px;
+  font-size: 11px;
+  font-style: italic;
+  opacity: 0.8;
+  text-align: center;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* ============================================================
    COMPOSER — same visual styling in both states, container differs
    ============================================================ */
 .composer {
