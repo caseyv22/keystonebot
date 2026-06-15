@@ -1,15 +1,16 @@
 /**
- * KeystoneBot Worker — Phase 5 (UI banner is sole conflict surface)
+ * KeystoneBot Worker — Phase 6.2 (agentic actions with stubbed tool handlers)
  *
  * Endpoints:
- *   - GET  /                        → deploy check
- *   - GET  /health                  → bindings status
- *   - GET  /setup                   → create Vectorize index
- *   - GET  /setup-metadata-indexes  → add filterable metadata fields
- *   - POST /ingest                  → ingest docs
- *   - GET  /ingest/status           → vector count
- *   - POST /chat                    → RAG chat endpoint (Haiku)
- *   - POST /grade                   → eval grading endpoint (Sonnet judge)
+ *   - GET  /                         → deploy check
+ *   - GET  /health                   → bindings status
+ *   - GET  /setup                    → create Vectorize index
+ *   - GET  /setup-metadata-indexes   → add filterable metadata fields
+ *   - POST /ingest                   → ingest docs
+ *   - GET  /ingest/status            → vector count
+ *   - POST /chat                     → RAG chat endpoint (Haiku) — supports tool use
+ *   - POST /chat/confirm-action      → finalize a write-tool action after user confirmation
+ *   - POST /grade                    → eval grading endpoint (Sonnet judge)
  */
 
 export interface Env {
@@ -110,7 +111,132 @@ When the user asks about PTO specifically, ALWAYS lead with the 250-hour / 31-da
 
 function buildSystemPromptForRole(role: string): string {
   const safeRole = Object.prototype.hasOwnProperty.call(ROLE_CONTEXTS, role) ? role : 'default';
-  return SYSTEM_PROMPT + ROLE_CONTEXTS[safeRole];
+  const today = new Date().toISOString().split('T')[0];
+  const toolBlock = TOOL_PROMPT_APPENDIX.replace('{TODAY}', today);
+  return SYSTEM_PROMPT + toolBlock + ROLE_CONTEXTS[safeRole];
+}
+
+// ----------------------------------------------------------------------------
+// Phase 6.2 — Agentic Actions (tools + stub handlers)
+//
+// All tool handlers are STUBBED. No real backend writes. The "simulated"
+// posture is surfaced in the UI so the agentic-actions demo stays honest.
+// In production these handlers would call Workday / a ticketing system /
+// etc. The orchestration shape (Anthropic tool-use protocol + frontend
+// confirmation step for write tools) is identical to how production
+// agentic systems are built.
+// ----------------------------------------------------------------------------
+
+const TOOLS = [
+  {
+    name: 'check_pto_balance',
+    description:
+      "Returns the current employee's PTO balance, Lot Days remaining, and any approaching milestones. Use this when the user asks how much PTO they have left, their balance, accrual status, or remaining days.",
+    input_schema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'submit_pto_request',
+    description:
+      'Submits a PTO request to the time-off system. This is a WRITE operation that requires user confirmation via the UI. Use this ONLY when the user explicitly asks to submit, request, file, or book PTO for a specific date. Convert relative dates (e.g., "next Friday", "July 15") to YYYY-MM-DD format.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        hours: { type: 'number', description: 'Hours of PTO to request' },
+        date: { type: 'string', description: 'Target date in YYYY-MM-DD format' },
+        reason: { type: 'string', description: 'Optional brief reason' },
+      },
+      required: ['hours', 'date'],
+    },
+  },
+  {
+    name: 'request_keystoneland_tickets',
+    description:
+      "Requests KeystoneLand tickets from the user's quarterly allotment. This is a WRITE operation that requires user confirmation via the UI. Use ONLY when the user explicitly asks to request, book, or claim park tickets.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        quantity: { type: 'number', description: 'Number of tickets (1-2 per quarter)' },
+        date_requested: { type: 'string', description: 'Target visit date in YYYY-MM-DD format' },
+      },
+      required: ['quantity', 'date_requested'],
+    },
+  },
+];
+
+const WRITE_TOOLS = new Set(['submit_pto_request', 'request_keystoneland_tickets']);
+
+const TOOL_PROMPT_APPENDIX = `
+
+TOOL USE:
+You have access to three tools for taking action on the employee's behalf.
+
+1. check_pto_balance (read-only) — Use ONLY when the user asks about their remaining balance, days left, or accrual status.
+
+2. submit_pto_request (WRITE) — Use ONLY when the user explicitly asks to submit, request, or book PTO. Convert relative dates to YYYY-MM-DD using today's date as reference. Today is {TODAY}.
+
+3. request_keystoneland_tickets (WRITE) — Use ONLY when the user explicitly asks to request, book, or claim park tickets.
+
+Tool rules:
+- For "how much PTO do I have left" questions, prefer the tool over policy docs — the tool has the user's actual balance.
+- Before a WRITE tool, narrate what you're about to do in ONE plain sentence (e.g., "I'll submit 8 hours of PTO for Friday, July 17."). The UI handles confirmation. Do NOT ask "shall I proceed?" or "want me to confirm?".
+- After a tool returns results, narrate the outcome naturally in one or two short sentences. Include the confirmation ID for write actions.
+- If the user asks a general HR policy question (not a balance check or action request), IGNORE the tools and answer from context as usual.`;
+
+function runToolStub(toolName: string, input: any): any {
+  switch (toolName) {
+    case 'check_pto_balance':
+      return {
+        pto_hours_remaining: 95,
+        pto_hours_total: 200,
+        lot_days_remaining: 5,
+        lot_days_total: 5,
+        anniversary_milestone: 'Approaching 5-year sabbatical (2 months away)',
+        as_of: new Date().toISOString().split('T')[0],
+      };
+
+    case 'submit_pto_request': {
+      const id = `PTO-2026-${Math.floor(10000 + Math.random() * 90000)}`;
+      return {
+        status: 'success',
+        confirmation_id: id,
+        hours_requested: input?.hours ?? 0,
+        date_requested: input?.date ?? '',
+        reason: input?.reason ?? null,
+        manager_notified: 'Sam Warner',
+        remaining_balance_hours: Math.max(0, 95 - (Number(input?.hours) || 0)),
+      };
+    }
+
+    case 'request_keystoneland_tickets': {
+      const id = `KL-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+      const qty = Number(input?.quantity) || 1;
+      return {
+        status: 'success',
+        confirmation_id: id,
+        tickets_requested: qty,
+        date_requested: input?.date_requested ?? '',
+        tickets_remaining_this_quarter: Math.max(0, 2 - qty),
+      };
+    }
+
+    default:
+      return { error: `Unknown tool: ${toolName}` };
+  }
+}
+
+function buildActionPreview(toolName: string, input: any): string {
+  switch (toolName) {
+    case 'submit_pto_request':
+      return `Submit ${input?.hours ?? '?'} hour${input?.hours === 1 ? '' : 's'} of PTO for ${input?.date ?? 'unspecified date'}${input?.reason ? ` (reason: ${input.reason})` : ''}.`;
+    case 'request_keystoneland_tickets':
+      return `Request ${input?.quantity ?? '?'} KeystoneLand ticket${input?.quantity === 1 ? '' : 's'} for ${input?.date_requested ?? 'unspecified date'}.`;
+    default:
+      return `Execute ${toolName}.`;
+  }
 }
 
 const JUDGE_SYSTEM_PROMPT = `You are an expert evaluator for an enterprise HR chatbot. You score answers against a rubric on five dimensions. Be strict but fair. Your judgments must be reproducible — different evaluators using this rubric on the same answer should reach the same verdict.
@@ -222,6 +348,15 @@ export default {
               );
             }
             return await runChat(request, env);
+
+          case '/chat/confirm-action':
+            if (request.method !== 'POST') {
+              return Response.json(
+                { error: 'POST required for /chat/confirm-action' },
+                { status: 405 }
+              );
+            }
+            return await runConfirmAction(request, env);
 
           case '/grade':
             if (request.method !== 'POST') {
@@ -530,25 +665,112 @@ async function runChat(request: Request, env: Env): Promise<Response> {
     conflicts
   );
 
-  const claudeResponse = await callClaude(env, CHAT_MODEL, buildSystemPromptForRole(role), [
-    {
-      role: 'user',
-      content: `CONTEXT:\n${contextBlock}\n\n=== EMPLOYEE QUESTION ===\n${message}`,
-    },
-  ]);
+  const constructedUserMessage = `CONTEXT:\n${contextBlock}\n\n=== EMPLOYEE QUESTION ===\n${message}`;
+
+  const claudeData = await callClaudeRaw(
+    env,
+    CHAT_MODEL,
+    buildSystemPromptForRole(role),
+    [{ role: 'user', content: constructedUserMessage }],
+    TOOLS
+  );
+
+  const textBlock = claudeData.content?.find((c: any) => c.type === 'text');
+  const toolUseBlock = claudeData.content?.find((c: any) => c.type === 'tool_use');
+
+  const safeRoleLabel = Object.prototype.hasOwnProperty.call(ROLE_CONTEXTS, role) ? role : 'default';
+
+  // No tool use — return the standard RAG answer
+  if (!toolUseBlock) {
+    return Response.json({
+      status: 'ok',
+      answer: textBlock?.text ?? '(no response)',
+      sources,
+      conflicts,
+      debug: {
+        chunks_retrieved: authoritativeMatches.length + forumMatches.length,
+        authoritative_count: authoritativeMatches.length,
+        forum_count: forumMatches.length,
+        filter_fallback_used: filterFallback,
+        model: CHAT_MODEL,
+        role: safeRoleLabel,
+        tool_use: null,
+        duration_ms: Date.now() - startTime,
+      },
+    });
+  }
+
+  const toolName: string = toolUseBlock.name;
+  const toolInput: any = toolUseBlock.input;
+  const toolUseId: string = toolUseBlock.id;
+
+  // WRITE tools require user confirmation — return pending state for the UI
+  if (WRITE_TOOLS.has(toolName)) {
+    return Response.json({
+      status: 'pending_confirmation',
+      answer: textBlock?.text ?? `I'd like to perform: ${toolName}.`,
+      pending_action: {
+        tool_use_id: toolUseId,
+        tool_name: toolName,
+        tool_input: toolInput,
+        preview_text: buildActionPreview(toolName, toolInput),
+      },
+      replay_context: {
+        original_user_content: constructedUserMessage,
+        role,
+        assistant_turn: claudeData.content,
+      },
+      sources: [],
+      conflicts: [],
+      debug: {
+        model: CHAT_MODEL,
+        role: safeRoleLabel,
+        tool_use: toolName,
+        write_tool: true,
+        duration_ms: Date.now() - startTime,
+      },
+    });
+  }
+
+  // Read-only tool: execute the stub, then loop back to Claude to narrate the result
+  const toolResult = runToolStub(toolName, toolInput);
+
+  const followUpData = await callClaudeRaw(
+    env,
+    CHAT_MODEL,
+    buildSystemPromptForRole(role),
+    [
+      { role: 'user', content: constructedUserMessage },
+      { role: 'assistant', content: claudeData.content },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: toolUseId,
+            content: JSON.stringify(toolResult),
+          },
+        ],
+      },
+    ]
+  );
+
+  const finalText = followUpData.content?.find((c: any) => c.type === 'text')?.text ?? '(no response)';
 
   return Response.json({
     status: 'ok',
-    answer: claudeResponse,
-    sources,
-    conflicts,
+    answer: finalText,
+    sources: [],
+    conflicts: [],
+    tool_executed: {
+      name: toolName,
+      result: toolResult,
+    },
     debug: {
-      chunks_retrieved: authoritativeMatches.length + forumMatches.length,
-      authoritative_count: authoritativeMatches.length,
-      forum_count: forumMatches.length,
-      filter_fallback_used: filterFallback,
       model: CHAT_MODEL,
-      role: Object.prototype.hasOwnProperty.call(ROLE_CONTEXTS, role) ? role : 'default',
+      role: safeRoleLabel,
+      tool_use: toolName,
+      write_tool: false,
       duration_ms: Date.now() - startTime,
     },
   });
@@ -565,6 +787,96 @@ function matchToSourceCard(m: any): SourceCard {
     chunk_id_readable: m.metadata?.chunk_id_readable ?? m.id,
     score: typeof m.score === 'number' ? Number(m.score.toFixed(4)) : 0,
   };
+}
+
+// ============================================================================
+// /chat/confirm-action
+// ============================================================================
+//
+// Finalizes a write-tool action after the user clicks Confirm in the UI.
+// The frontend POSTs the pending_action + replay_context received from /chat,
+// the Worker runs the stubbed tool handler, then re-calls Claude with the
+// tool_result so Claude can narrate the outcome (including the confirmation
+// ID). On Cancel, no tool is executed and a brief acknowledgment is returned.
+//
+async function runConfirmAction(request: Request, env: Env): Promise<Response> {
+  const startTime = Date.now();
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
+
+  const confirmed = !!body?.confirmed;
+  const pendingAction = body?.pending_action;
+  const replayContext = body?.replay_context;
+
+  if (!pendingAction?.tool_use_id || !pendingAction?.tool_name) {
+    return Response.json({ error: 'Missing pending_action' }, { status: 400 });
+  }
+  if (!confirmed) {
+    return Response.json({
+      status: 'cancelled',
+      answer: `OK, I didn't submit the ${pendingAction.tool_name === 'submit_pto_request' ? 'PTO request' : 'request'}. Let me know if you'd like to try something else.`,
+      debug: {
+        confirmed: false,
+        tool_name: pendingAction.tool_name,
+        duration_ms: Date.now() - startTime,
+      },
+    });
+  }
+
+  if (!replayContext?.original_user_content || !replayContext?.assistant_turn) {
+    return Response.json({ error: 'Missing replay_context for confirmation' }, { status: 400 });
+  }
+
+  // Run the stubbed handler
+  const toolResult = runToolStub(pendingAction.tool_name, pendingAction.tool_input);
+
+  const role = (replayContext.role ?? 'default').toString();
+
+  // Replay the conversation with the tool_result appended so Claude narrates the outcome
+  const followUpData = await callClaudeRaw(
+    env,
+    CHAT_MODEL,
+    buildSystemPromptForRole(role),
+    [
+      { role: 'user', content: replayContext.original_user_content },
+      { role: 'assistant', content: replayContext.assistant_turn },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: pendingAction.tool_use_id,
+            content: JSON.stringify(toolResult),
+          },
+        ],
+      },
+    ]
+  );
+
+  const finalText =
+    followUpData.content?.find((c: any) => c.type === 'text')?.text ??
+    `Done. Confirmation ID: ${toolResult.confirmation_id}.`;
+
+  return Response.json({
+    status: 'ok',
+    answer: finalText,
+    tool_executed: {
+      name: pendingAction.tool_name,
+      result: toolResult,
+    },
+    debug: {
+      confirmed: true,
+      tool_name: pendingAction.tool_name,
+      model: CHAT_MODEL,
+      role: Object.prototype.hasOwnProperty.call(ROLE_CONTEXTS, role) ? role : 'default',
+      duration_ms: Date.now() - startTime,
+    },
+  });
 }
 
 function buildContextBlock(
@@ -736,12 +1048,23 @@ Return your JSON verdict now.`;
 // Shared LLM call
 // ============================================================================
 
-async function callClaude(
+async function callClaudeRaw(
   env: Env,
   model: string,
   systemPrompt: string,
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>
-): Promise<string> {
+  messages: any[],
+  tools?: any[]
+): Promise<any> {
+  const requestBody: any = {
+    model,
+    max_tokens: 1024,
+    system: systemPrompt,
+    messages,
+  };
+  if (tools && tools.length > 0) {
+    requestBody.tools = tools;
+  }
+
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -749,12 +1072,7 @@ async function callClaude(
       'anthropic-version': '2023-06-01',
       'content-type': 'application/json',
     },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages,
-    }),
+    body: JSON.stringify(requestBody),
   });
 
   if (!resp.ok) {
@@ -762,7 +1080,16 @@ async function callClaude(
     throw new Error(`Anthropic API error ${resp.status} (model=${model}): ${errText}`);
   }
 
-  const data = (await resp.json()) as any;
+  return await resp.json();
+}
+
+async function callClaude(
+  env: Env,
+  model: string,
+  systemPrompt: string,
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>
+): Promise<string> {
+  const data = await callClaudeRaw(env, model, systemPrompt, messages);
   const textBlock = data.content?.find((c: any) => c.type === 'text');
   return textBlock?.text ?? '(no response)';
 }
