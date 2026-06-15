@@ -80,29 +80,32 @@ CONFIDENTIALITY:
 const ROLE_CONTEXTS: Record<string, string> = {
   default: '',
 
-  park: `
+  hourly: `
 
 USER ROLE CONTEXT:
-The user is an HOURLY employee at KeystoneLand in Las Vegas, covered by IATSE Local 720 (CBA Article 7 governs time off and benefits for park hourly staff). Reframe answers through this lens:
+The user is an HOURLY employee at Keystone Studios — typically production crew on the lots (Burbank, Atlanta, Vancouver, NY), post-production hourly staff, or KeystoneLand park staff. Most hourly employees are covered by IATSE collective bargaining agreements (Local 720 for KeystoneLand park staff; Locals 80, 871, and 800 for various production roles depending on craft). Reframe answers through this lens:
 
-- PTO accrues based on hours worked, NOT the salaried 25+5 schedule. Reference the CBA accrual schedule and direct them to park-hr@keystoneland.com for their specific balance.
-- "Lot Days" do NOT apply to park hourly employees — the park stays open during the corporate dark period in late December.
-- Parental leave: refer to CBA Article 12, which mirrors the corporate 16-week baseline but with hourly accrual rules.
-- Anniversary Benefit: the same 5-year sabbatical applies, but the $2,500 travel stipend is processed through park payroll, not corporate Concur.
-- For ANY referral to HR, use park-hr@keystoneland.com INSTEAD of hr@keystone.studio.
-- Do NOT invent CBA article numbers or pay scales beyond what is stated above. If asked for specifics not covered here, direct them to park-hr@keystoneland.com.`,
+- PTO accrues based on hours worked, NOT the salaried 25-day / 200-hour annual schedule. The exact accrual rate is set by the user's CBA. Direct them to hourly-hr@keystone.studio for their specific balance and rate.
+- "Lot Days" do NOT apply to hourly employees — production crews work during shoots regardless of the corporate dark period, and KeystoneLand stays open year-round.
+- Parental leave: hourly employees receive the same 16-week baseline, but pay continuation and accrual follow the user's CBA terms.
+- Anniversary Benefit: the same 5-year sabbatical applies, but the $2,500 travel stipend is processed through hourly payroll, not corporate Concur.
+- For ANY referral to HR, use hourly-hr@keystone.studio INSTEAD of hr@keystone.studio.
+- Do NOT invent specific CBA article numbers or pay scales beyond what is stated above. Direct CBA-specific questions to hourly-hr@keystone.studio.`,
 
   executive: `
 
 USER ROLE CONTEXT:
-The user is a VP-level or above EXECUTIVE at Keystone Studios HQ. When the question is adjacent to executive-specific facts, layer these in (don't dump them all into every answer):
+The user is a VP-level or above EXECUTIVE at Keystone Studios HQ. Executive-specific facts to layer into answers when adjacent to the question (don't dump them all into every reply):
 
+- PTO: Executives receive **250 hours of PTO per year** (roughly 31 days) — vs. the standard 200 hours / 25 days for salaried staff. The same 5 Lot Days apply. The accrual cap is raised to **280 hours** (vs. 240 for non-execs).
 - Keystone Value Units (KVUs): executive vesting is a 4-year cliff with annual top-up grants tied to performance review (vs. 4-year monthly vesting for non-execs).
 - Reserved executive parking on the lot at Building One.
 - L&D budget: $7,500/year (vs. $2,000/year for non-execs).
 - Executive coaching program: 1:1 with an external coach, up to 12 sessions/year, $0 out of pocket.
 - Anniversary Benefit travel stipend: same $2,500 baseline, bumped to $5,000 at the 10-year milestone.
-- For role-specific KVU schedule or compensation detail not covered above, direct the user to their HRBP or hr@keystone.studio.`,
+- For role-specific KVU schedule or compensation detail not covered above, direct the user to their HRBP or hr@keystone.studio.
+
+When the user asks about PTO specifically, ALWAYS lead with the 250-hour / 31-day executive entitlement so the answer is clearly differentiated from the standard salaried response.`,
 };
 
 function buildSystemPromptForRole(role: string): string {
