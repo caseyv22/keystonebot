@@ -113,7 +113,7 @@ function buildSystemPromptForRole(role: string): string {
   const safeRole = Object.prototype.hasOwnProperty.call(ROLE_CONTEXTS, role) ? role : 'default';
   const today = new Date().toISOString().split('T')[0];
   const toolBlock = TOOL_PROMPT_APPENDIX.replace('{TODAY}', today);
-  return SYSTEM_PROMPT + toolBlock + ROLE_CONTEXTS[safeRole];
+  return toolBlock + SYSTEM_PROMPT + ROLE_CONTEXTS[safeRole];
 }
 
 // ----------------------------------------------------------------------------
@@ -169,22 +169,53 @@ const TOOLS = [
 
 const WRITE_TOOLS = new Set(['submit_pto_request', 'request_keystoneland_tickets']);
 
-const TOOL_PROMPT_APPENDIX = `
+const TOOL_PROMPT_APPENDIX = `=== TOOL USE PROTOCOL — READ FIRST ===
 
-TOOL USE:
-You have access to three tools for taking action on the employee's behalf.
+You have three tools. When the user's message matches one of the patterns below, you MUST emit a tool_use content block in your response. Generating only a text narration without a tool_use block is a FAILURE of this protocol — narration alone is never a valid response to an action request.
 
-1. check_pto_balance (read-only) — Use ONLY when the user asks about their remaining balance, days left, or accrual status.
+TOOL 1 — check_pto_balance (read-only)
+  Triggers: user asks about their PTO balance, days/hours remaining, vacation left,
+  accrual status, "how much vacation do I have", "what's my balance".
 
-2. submit_pto_request (WRITE) — Use ONLY when the user explicitly asks to submit, request, or book PTO. Convert relative dates to YYYY-MM-DD using today's date as reference. Today is {TODAY}.
+TOOL 2 — submit_pto_request (write)
+  Triggers: user explicitly asks to submit, request, book, or file PTO for a specific
+  date and/or number of hours. Action verbs ("submit", "book", "request") combined
+  with a date or hours value are the signal.
 
-3. request_keystoneland_tickets (WRITE) — Use ONLY when the user explicitly asks to request, book, or claim park tickets.
+TOOL 3 — request_keystoneland_tickets (write)
+  Triggers: user explicitly asks to request, book, or claim KeystoneLand park tickets.
 
-Tool rules:
-- For "how much PTO do I have left" questions, prefer the tool over policy docs — the tool has the user's actual balance.
-- Before a WRITE tool, narrate what you're about to do in ONE plain sentence (e.g., "I'll submit 8 hours of PTO for Friday, July 17."). The UI handles confirmation. Do NOT ask "shall I proceed?" or "want me to confirm?".
-- After a tool returns results, narrate the outcome naturally in one or two short sentences. Include the confirmation ID for write actions.
-- If the user asks a general HR policy question (not a balance check or action request), IGNORE the tools and answer from context as usual.`;
+=== REQUIRED RESPONSE EXAMPLES ===
+
+User says: "How much PTO do I have left?"
+You MUST: emit tool_use for check_pto_balance with input {}.
+
+User says: "Submit 8 hours of PTO for June 20"
+You MUST: emit tool_use for submit_pto_request with input {"hours": 8, "date": "2026-06-20"}.
+You MAY also include a brief text block like "I'll submit 8 hours of PTO for Saturday, June 20." in the same response, but the tool_use block is REQUIRED. Text alone is not acceptable.
+
+User says: "Can I book 2 KeystoneLand tickets for July 4?"
+You MUST: emit tool_use for request_keystoneland_tickets with input {"quantity": 2, "date_requested": "2026-07-04"}.
+
+User says: "How much PTO do I get per year?" (this is a POLICY question)
+You MUST: NOT use any tool. Answer from the retrieved CONTEXT as a normal RAG response.
+
+User says: "What's the parental leave policy?" (POLICY question)
+You MUST: NOT use any tool. Answer from CONTEXT.
+
+=== DATE HANDLING ===
+
+Today is {TODAY}. Convert any relative or partial date to YYYY-MM-DD before passing to a tool.
+- "next Friday" → next Friday's date in YYYY-MM-DD
+- "June 20" (no year) → use current year ({TODAY}'s year); if the date already passed this year, use next year
+- "tomorrow" → today + 1 day
+Always pass a complete YYYY-MM-DD string. Never pass partial dates.
+
+=== POLICY CONTEXT WARNING ===
+
+When the user requests an ACTION (submit/book/request + specific value), the retrieved CONTEXT will likely contain related policy text (e.g., PTO policy retrieved for a "submit PTO" request). You MUST IGNORE the policy context when responding to an action request. The user is asking you to DO something via a tool, not to explain the policy. Do not let policy retrieval pull you into explanation mode. Do not ask "shall I proceed?" — the UI handles confirmation for write tools.
+
+`;
 
 function runToolStub(toolName: string, input: any): any {
   switch (toolName) {
