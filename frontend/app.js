@@ -18,7 +18,7 @@ const messageData = new WeakMap();
 // On load: restore role selection from localStorage
 const ROLE_STORAGE_KEY = 'keystonebot:role';
 const savedRole = localStorage.getItem(ROLE_STORAGE_KEY);
-if (savedRole && ['default', 'park', 'executive'].includes(savedRole)) {
+if (savedRole && ['default', 'hourly', 'executive'].includes(savedRole)) {
   roleSelect.value = savedRole;
 }
 roleSelect.addEventListener('change', () => {
