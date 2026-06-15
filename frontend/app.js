@@ -29,7 +29,7 @@ roleSelect.addEventListener('change', () => {
 // On load: restore language selection from localStorage
 const LANGUAGE_STORAGE_KEY = 'keystonebot:language';
 const savedLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY);
-if (savedLanguage && ['en', 'es', 'fr'].includes(savedLanguage)) {
+if (savedLanguage && ['en', 'es', 'fr', 'zh'].includes(savedLanguage)) {
   languageSelect.value = savedLanguage;
 }
 languageSelect.addEventListener('change', () => {
