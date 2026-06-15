@@ -19,11 +19,21 @@
         <span class="brand-product">HR Assistant</span>
         <span class="demo-pill">Demo</span>
       </div>
-      <label class="toggle" title="Surface forum misinformation conflicts in responses">
-        <input type="checkbox" id="conflictToggle" />
-        <span class="toggle-slider"></span>
-        <span class="toggle-label">Show forum conflicts</span>
-      </label>
+      <div class="topbar-controls">
+        <label class="role-select-wrap" title="Reframe answers for your role">
+          <span class="role-select-label">Viewing as</span>
+          <select id="roleSelect" class="role-select" aria-label="Your role">
+            <option value="default">Regular Employee</option>
+            <option value="park">Park Employee</option>
+            <option value="executive">Executive</option>
+          </select>
+        </label>
+        <label class="toggle" title="Surface forum misinformation conflicts in responses">
+          <input type="checkbox" id="conflictToggle" />
+          <span class="toggle-slider"></span>
+          <span class="toggle-label">Show forum conflicts</span>
+        </label>
+      </div>
     </header>
 
     <!-- Empty state: greeting → chips → composer → disclaimer -->
