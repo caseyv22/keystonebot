@@ -109,11 +109,59 @@ The user is a VP-level or above EXECUTIVE at Keystone Studios HQ. Executive-spec
 When the user asks about PTO specifically, ALWAYS lead with the 250-hour / 31-day executive entitlement so the answer is clearly differentiated from the standard salaried response.`,
 };
 
-function buildSystemPromptForRole(role: string): string {
+// Language instruction blocks — appended to the system prompt when language !== 'en'.
+// Only the body of the answer is translated. Source-of-truth artifacts (document titles,
+// version numbers, email addresses, proper nouns) stay in English so the citation /
+// provenance trail remains auditable in the canonical version. This is the
+// "answer translates, citation does not" product story.
+const LANGUAGE_INSTRUCTIONS: Record<string, string> = {
+  en: '',
+
+  es: `
+
+LANGUAGE INSTRUCTION:
+Respond to the user in Spanish (español). Translate the body of the answer fluently and naturally — write as a native Spanish-speaking HR partner would.
+
+DO NOT translate (keep these EXACTLY as written in English):
+- Document titles and section headings (e.g., "PTO Policy", "Parental Leave")
+- Version numbers (e.g., "v3.2")
+- Email addresses (hr@keystone.studio, hourly-hr@keystone.studio, park-hr@keystoneland.com)
+- Proper nouns: Keystone Studios, KeystoneLand, Workday, Concur, Slack, IATSE, Lot Days, Keystone Value Units (KVUs)
+- Numeric values (hours, days, dollar amounts, percentages, dates)
+
+Keep the response structure and citation format identical to the English version. Action card preview text and system labels (Confirm/Cancel) will remain in English in the UI — only your prose translates.`,
+
+  fr: `
+
+LANGUAGE INSTRUCTION:
+Respond to the user in French (français). Translate the body of the answer fluently and naturally — write as a native French-speaking HR partner would.
+
+DO NOT translate (keep these EXACTLY as written in English):
+- Document titles and section headings (e.g., "PTO Policy", "Parental Leave")
+- Version numbers (e.g., "v3.2")
+- Email addresses (hr@keystone.studio, hourly-hr@keystone.studio, park-hr@keystoneland.com)
+- Proper nouns: Keystone Studios, KeystoneLand, Workday, Concur, Slack, IATSE, Lot Days, Keystone Value Units (KVUs)
+- Numeric values (hours, days, dollar amounts, percentages, dates)
+
+Keep the response structure and citation format identical to the English version. Action card preview text and system labels (Confirm/Cancel) will remain in English in the UI — only your prose translates.`,
+};
+
+// Generic cancellation messages per language for the /chat/confirm-action cancel path.
+// Used when the user clicks Cancel — Claude is not involved, so we localize directly.
+const CANCEL_MESSAGES: Record<string, string> = {
+  en: "OK, no action was submitted. Let me know if you'd like to try something else.",
+  es: "De acuerdo, no se envió ninguna solicitud. Avísame si quieres intentar otra cosa.",
+  fr: "D'accord, aucune action n'a été soumise. Dites-moi si vous souhaitez essayer autre chose.",
+};
+
+function buildSystemPromptForRole(role: string, language?: string): string {
   const safeRole = Object.prototype.hasOwnProperty.call(ROLE_CONTEXTS, role) ? role : 'default';
+  const safeLang = language && Object.prototype.hasOwnProperty.call(LANGUAGE_INSTRUCTIONS, language)
+    ? language
+    : 'en';
   const today = new Date().toISOString().split('T')[0];
   const toolBlock = TOOL_PROMPT_APPENDIX.replace('{TODAY}', today);
-  return toolBlock + SYSTEM_PROMPT + ROLE_CONTEXTS[safeRole];
+  return toolBlock + SYSTEM_PROMPT + ROLE_CONTEXTS[safeRole] + LANGUAGE_INSTRUCTIONS[safeLang];
 }
 
 // ----------------------------------------------------------------------------
@@ -634,6 +682,7 @@ async function runChat(request: Request, env: Env): Promise<Response> {
   }
 
   const role = (body?.role ?? 'default').toString();
+  const language = (body?.language ?? 'en').toString();
 
   const queryEmbedding = await embedText(env, message);
 
@@ -714,7 +763,7 @@ async function runChat(request: Request, env: Env): Promise<Response> {
   const claudeData = await callClaudeRaw(
     env,
     CHAT_MODEL,
-    buildSystemPromptForRole(role),
+    buildSystemPromptForRole(role, language),
     [{ role: 'user', content: constructedUserMessage }],
     TOOLS
   );
@@ -723,6 +772,7 @@ async function runChat(request: Request, env: Env): Promise<Response> {
   const toolUseBlock = claudeData.content?.find((c: any) => c.type === 'tool_use');
 
   const safeRoleLabel = Object.prototype.hasOwnProperty.call(ROLE_CONTEXTS, role) ? role : 'default';
+  const safeLangLabel = Object.prototype.hasOwnProperty.call(LANGUAGE_INSTRUCTIONS, language) ? language : 'en';
 
   // No tool use — return the standard RAG answer
   if (!toolUseBlock) {
@@ -738,6 +788,7 @@ async function runChat(request: Request, env: Env): Promise<Response> {
         filter_fallback_used: filterFallback,
         model: CHAT_MODEL,
         role: safeRoleLabel,
+        language: safeLangLabel,
         tool_use: null,
         duration_ms: Date.now() - startTime,
       },
@@ -762,6 +813,7 @@ async function runChat(request: Request, env: Env): Promise<Response> {
       replay_context: {
         original_user_content: constructedUserMessage,
         role,
+        language,
         assistant_turn: claudeData.content,
       },
       sources: [],
@@ -769,6 +821,7 @@ async function runChat(request: Request, env: Env): Promise<Response> {
       debug: {
         model: CHAT_MODEL,
         role: safeRoleLabel,
+        language: safeLangLabel,
         tool_use: toolName,
         write_tool: true,
         duration_ms: Date.now() - startTime,
@@ -782,7 +835,7 @@ async function runChat(request: Request, env: Env): Promise<Response> {
   const followUpData = await callClaudeRaw(
     env,
     CHAT_MODEL,
-    buildSystemPromptForRole(role),
+    buildSystemPromptForRole(role, language),
     [
       { role: 'user', content: constructedUserMessage },
       { role: 'assistant', content: claudeData.content },
@@ -813,6 +866,7 @@ async function runChat(request: Request, env: Env): Promise<Response> {
     debug: {
       model: CHAT_MODEL,
       role: safeRoleLabel,
+      language: safeLangLabel,
       tool_use: toolName,
       write_tool: false,
       duration_ms: Date.now() - startTime,
@@ -860,13 +914,19 @@ async function runConfirmAction(request: Request, env: Env): Promise<Response> {
   if (!pendingAction?.tool_use_id || !pendingAction?.tool_name) {
     return Response.json({ error: 'Missing pending_action' }, { status: 400 });
   }
+
+  const role = (replayContext?.role ?? 'default').toString();
+  const language = (replayContext?.language ?? 'en').toString();
+  const safeLangLabel = Object.prototype.hasOwnProperty.call(LANGUAGE_INSTRUCTIONS, language) ? language : 'en';
+
   if (!confirmed) {
     return Response.json({
       status: 'cancelled',
-      answer: `OK, I didn't submit the ${pendingAction.tool_name === 'submit_pto_request' ? 'PTO request' : 'request'}. Let me know if you'd like to try something else.`,
+      answer: CANCEL_MESSAGES[safeLangLabel] ?? CANCEL_MESSAGES.en,
       debug: {
         confirmed: false,
         tool_name: pendingAction.tool_name,
+        language: safeLangLabel,
         duration_ms: Date.now() - startTime,
       },
     });
@@ -879,13 +939,11 @@ async function runConfirmAction(request: Request, env: Env): Promise<Response> {
   // Run the stubbed handler
   const toolResult = runToolStub(pendingAction.tool_name, pendingAction.tool_input);
 
-  const role = (replayContext.role ?? 'default').toString();
-
   // Replay the conversation with the tool_result appended so Claude narrates the outcome
   const followUpData = await callClaudeRaw(
     env,
     CHAT_MODEL,
-    buildSystemPromptForRole(role),
+    buildSystemPromptForRole(role, language),
     [
       { role: 'user', content: replayContext.original_user_content },
       { role: 'assistant', content: replayContext.assistant_turn },
@@ -918,6 +976,7 @@ async function runConfirmAction(request: Request, env: Env): Promise<Response> {
       tool_name: pendingAction.tool_name,
       model: CHAT_MODEL,
       role: Object.prototype.hasOwnProperty.call(ROLE_CONTEXTS, role) ? role : 'default',
+      language: safeLangLabel,
       duration_ms: Date.now() - startTime,
     },
   });
