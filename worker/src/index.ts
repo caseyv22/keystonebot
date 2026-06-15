@@ -192,7 +192,7 @@ You MUST: emit tool_use for check_pto_balance with input {}.
 
 User says: "Submit 8 hours of PTO for June 20"
 You MUST: emit tool_use for submit_pto_request with input {"hours": 8, "date": "2026-06-20"}.
-You MAY also include a brief text block like "I'll submit 8 hours of PTO for Saturday, June 20." in the same response, but the tool_use block is REQUIRED. Text alone is not acceptable.
+You SHOULD also include a brief, conversational text block in the same response (e.g., "I'll submit 8 hours of PTO for Saturday, June 20."). The tool_use block is REQUIRED; the text narration is strongly preferred for a natural flow.
 
 User says: "Can I book 2 KeystoneLand tickets for July 4?"
 You MUST: emit tool_use for request_keystoneland_tickets with input {"quantity": 2, "date_requested": "2026-07-04"}.
@@ -267,6 +267,19 @@ function buildActionPreview(toolName: string, input: any): string {
       return `Request ${input?.quantity ?? '?'} KeystoneLand ticket${input?.quantity === 1 ? '' : 's'} for ${input?.date_requested ?? 'unspecified date'}.`;
     default:
       return `Execute ${toolName}.`;
+  }
+}
+
+function friendlyToolLabel(toolName: string): string {
+  switch (toolName) {
+    case 'check_pto_balance':
+      return 'PTO Balance Check';
+    case 'submit_pto_request':
+      return 'PTO Request';
+    case 'request_keystoneland_tickets':
+      return 'KeystoneLand Ticket Request';
+    default:
+      return 'Action';
   }
 }
 
@@ -739,7 +752,7 @@ async function runChat(request: Request, env: Env): Promise<Response> {
   if (WRITE_TOOLS.has(toolName)) {
     return Response.json({
       status: 'pending_confirmation',
-      answer: textBlock?.text ?? `I'd like to perform: ${toolName}.`,
+      answer: textBlock?.text ?? friendlyToolLabel(toolName),
       pending_action: {
         tool_use_id: toolUseId,
         tool_name: toolName,
